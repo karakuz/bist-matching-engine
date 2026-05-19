@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: pte_postgres
+    environment:
+      POSTGRES_USER: pte
+      POSTGRES_PASSWORD: pte
+      POSTGRES_DB: pte
+    ports:
+      - "5432:5432"
+    volumes:
+      - pte_pgdata:/var/lib/postgresql/data
+      - ./migrations:/migrations:ro
+
+volumes:
+  pte_pgdata:
