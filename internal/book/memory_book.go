@@ -39,7 +39,7 @@ func (book *Book) Add(order Order) error {
 }
 
 func (book *Book) BestBuy() (domain.Order, bool) {
-	var bestBid int64 = book.bestBid
+	bestBid := book.bestBid
 	if bestBid == 0 {
 		return Order{}, false
 	}
@@ -54,8 +54,47 @@ func (book *Book) BestBuy() (domain.Order, bool) {
 	return level[0], true
 }
 
+func (book *Book) recalculateBestBuy() {
+	var bestBuy int64 = 0
+	for price := range book.buys {
+		if price > bestBuy {
+			bestBuy = price
+		}
+	}
+	book.bestBid = bestBuy
+}
+
+func (book *Book) recalculateBestSell() {
+	var bestSell int64
+	firstIter := true
+	for price := range book.sells {
+		if firstIter || price < bestSell {
+			bestSell = price
+			firstIter = false
+		}
+	}
+	book.bestAsk = bestSell
+}
+
+func (book *Book) RemoveBestBuy() {
+	bestBuyOrder, bestBuyExists := book.BestBuy()
+
+	if !bestBuyExists {
+		return
+	}
+
+	level := book.buys[bestBuyOrder.Price]
+	newLevel := level[1:]
+	if len(newLevel) == 0 {
+		delete(book.buys, bestBuyOrder.Price)
+		book.recalculateBestBuy()
+	} else {
+		book.buys[bestBuyOrder.Price] = newLevel
+	}
+}
+
 func (book *Book) BestSell() (domain.Order, bool) {
-	var bestAsk int64 = book.bestAsk
+	bestAsk := book.bestAsk
 	if bestAsk == 0 {
 		return Order{}, false
 	}
@@ -68,6 +107,23 @@ func (book *Book) BestSell() (domain.Order, bool) {
 
 	//return the oldest Order
 	return level[0], true
+}
+
+func (book *Book) RemoveBestSell() {
+	bestSellOrder, bestSellExists := book.BestSell()
+
+	if !bestSellExists {
+		return
+	}
+
+	level := book.sells[bestSellOrder.Price]
+	newLevel := level[1:]
+	if len(newLevel) == 0 {
+		delete(book.sells, bestSellOrder.Price)
+		book.recalculateBestSell()
+	} else {
+		book.sells[bestSellOrder.Price] = newLevel
+	}
 }
 
 func NewBook() *Book {
