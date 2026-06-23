@@ -25,7 +25,7 @@ const (
 
 type Order struct {
 	ID                string
-	Symbol            string
+	Symbol            Symbol
 	Side              Side
 	Price             int64
 	Quantity          int64
@@ -36,7 +36,7 @@ type Order struct {
 
 type Trade struct {
 	ID          string
-	Symbol      string
+	Symbol      Symbol
 	BuyOrderID  string
 	SellOrderID string
 	Price       int64
@@ -45,20 +45,17 @@ type Trade struct {
 }
 
 var (
-	ErrEmptySymbol    = errors.New("symbol cannot be empty")
 	ErrInvalidSide    = errors.New("side must be BUY or SELL")
 	ErrInvalidPrice   = errors.New("price must be > 0")
 	ErrInvalidQty     = errors.New("quantity must be > 0")
 	ErrEmptyOrderID   = errors.New("order id cannot be empty")
 )
 
-func NewOrder(id, symbol string, side Side, price, quantity int64, createdAt time.Time) (Order, error) {
+func NewOrder(id string, symbol Symbol, side Side, price, quantity int64, createdAt time.Time) (Order, error) {
 	if strings.TrimSpace(id) == "" {
 		return Order{}, ErrEmptyOrderID
 	}
-	if strings.TrimSpace(symbol) == "" {
-		return Order{}, ErrEmptySymbol
-	}
+	
 	if side != SideBuy && side != SideSell {
 		return Order{}, ErrInvalidSide
 	}
@@ -74,7 +71,7 @@ func NewOrder(id, symbol string, side Side, price, quantity int64, createdAt tim
 
 	return Order{
 		ID:                id,
-		Symbol:            strings.ToUpper(strings.TrimSpace(symbol)),
+		Symbol:            symbol,
 		Side:              side,
 		Price:             price,
 		Quantity:          quantity,

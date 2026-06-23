@@ -1,23 +1,37 @@
 package book
 
-import "bist-matching-engine/internal/domain"
+import (
+	"errors"
+	"bist-matching-engine/internal/domain"
+)
 
 type Order = domain.Order
+type Symbol = domain.Symbol
+
+var (
+	ErrInvalidOrderSymbol    = errors.New("Order symbol does not match with Book's symbol")
+)
 
 // TODO: update bestBid and bestAsk on update/cancel order operations
 
 type Book struct {
+	Symbol Symbol
+	
 	// maps: lookup by price is fast but but best bid/ask discovery is slow (O(n) scan)
 	buys  map[int64][]Order
 	sells map[int64][]Order
 
 	// hence keeping bestBid and bestAsk prices as attributes
-	bestBid int64
-	bestAsk int64
+	bestBid int64//buy
+	bestAsk int64//sell
 }
 
 func (book *Book) Add(order Order) error {
 	var sideLevels map[int64][]Order
+
+	if order.Symbol.Code != book.Symbol.Code{
+		return ErrInvalidOrderSymbol
+	}
 
 	if order.Side == domain.SideBuy {
 		sideLevels = book.buys
@@ -93,6 +107,30 @@ func (book *Book) RemoveBestBuy() {
 	}
 }
 
+func (book *Book) ReduceBestBuy(quantity int64) {
+	bestBuyOrder, exists := book.BestBuy()
+	if !exists {
+		return
+	}
+
+	level := book.buys[bestBuyOrder.Price]
+	if len(level) == 0 {
+		return
+	}
+	firstBid := &level[0]
+	quantityCanBeReduced := min(firstBid.RemainingQuantity, quantity)
+	firstBid.RemainingQuantity -= quantityCanBeReduced
+
+	if firstBid.RemainingQuantity == 0 {
+		firstBid.Status = domain.StatusFilled
+		book.RemoveBestBuy()
+		return
+	}
+
+	level[0].Status = domain.StatusPartiallyFilled
+	book.buys[bestBuyOrder.Price] = level
+}
+
 func (book *Book) BestSell() (domain.Order, bool) {
 	bestAsk := book.bestAsk
 	if bestAsk == 0 {
@@ -126,8 +164,32 @@ func (book *Book) RemoveBestSell() {
 	}
 }
 
-func NewBook() *Book {
+func (book *Book) ReduceBestSell(quantity int64) {
+	bestSellOrder, exists := book.BestSell()
+	if !exists {
+		return
+	}
+
+	level := book.sells[bestSellOrder.Price]
+	if len(level) == 0 {
+		return
+	}
+	firstAsk := &level[0]
+	quantityCanBeReduced := min(firstAsk.RemainingQuantity, quantity)
+	firstAsk.RemainingQuantity -= quantityCanBeReduced
+
+	if firstAsk.RemainingQuantity == 0 {
+		book.RemoveBestSell()
+		return
+	}
+
+	firstAsk.Status = domain.StatusPartiallyFilled
+	book.sells[bestSellOrder.Price] = level
+}
+
+func NewBook(symbol Symbol) *Book {
 	return &Book{
+		Symbol: symbol,
 		buys:  make(map[int64][]Order),
 		sells: make(map[int64][]Order),
 	}
