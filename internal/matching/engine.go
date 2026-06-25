@@ -2,7 +2,7 @@ package matching
 
 import (
 	"errors"
-	"fmt"
+	//"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,12 +40,12 @@ func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade
 			// todo
 			return order, []domain.Trade{}, nil
 		}
+
 		if order.Price < bestSellOrder.Price {
 			// todo
 			return order, []domain.Trade{}, nil
 		} else if order.Price == bestSellOrder.Price {
 			if bestSellOrder.RemainingQuantity >= order.Quantity {
-				fmt.Printf("bestSellOrder.RemainingQuantity: %d, order.Quantity: %d", bestSellOrder.RemainingQuantity, order.Quantity)
 				trade := domain.Trade{
 					ID:          uuid.NewString(),
 					Symbol:      order.Symbol,
@@ -85,42 +85,50 @@ func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade
 			}
 		} else if order.Price > bestSellOrder.Price {
 			for {
-				var tradeQuantity int64
-				var orderRemainingQuantity int64
-				var newOrderStatus domain.OrderStatus
-
 				if order.RemainingQuantity > bestSellOrder.RemainingQuantity {
-					tradeQuantity = bestSellOrder.RemainingQuantity
-					orderRemainingQuantity = order.RemainingQuantity - bestSellOrder.RemainingQuantity
-					newOrderStatus = domain.StatusFilled
+					trade := domain.Trade{
+						ID:          uuid.NewString(),
+						Symbol:      order.Symbol,
+						BuyOrderID:  order.ID,
+						SellOrderID: bestSellOrder.ID,
+						Price:       bestSellOrder.Price,
+						Quantity:    bestSellOrder.RemainingQuantity,
+						CreatedAt:   time.Now().UTC(),
+					}
+					trades = append(trades, trade)
+
+					order.RemainingQuantity -= bestSellOrder.RemainingQuantity
+					engine.book.RemoveBestSell()
 				} else if order.RemainingQuantity <= bestSellOrder.RemainingQuantity {
-					tradeQuantity = order.Quantity
-					orderRemainingQuantity = order.Quantity
-					newOrderStatus = domain.StatusFilled
-				}
+					trade := domain.Trade{
+						ID:          uuid.NewString(),
+						Symbol:      order.Symbol,
+						BuyOrderID:  order.ID,
+						SellOrderID: bestSellOrder.ID,
+						Price:       bestSellOrder.Price,
+						Quantity:    order.RemainingQuantity,
+						CreatedAt:   time.Now().UTC(),
+					}
+					trades = append(trades, trade)
 
-				trade := domain.Trade{
-					ID:          uuid.NewString(),
-					Symbol:      order.Symbol,
-					BuyOrderID:  order.ID,
-					SellOrderID: bestSellOrder.ID,
-					Price:       bestSellOrder.Price,
-					Quantity:    tradeQuantity,
-					CreatedAt:   time.Now().UTC(),
-				}
-				trades = append(trades, trade)
+					engine.book.ReduceBestSell(order.RemainingQuantity)
+					order.RemainingQuantity = 0
+			 	}
 
-				order.RemainingQuantity = orderRemainingQuantity
-				order.Status = newOrderStatus
-				engine.book.RemoveBestSell()
-
-				bestSellOrder, bestSellOrderExists := engine.book.BestSell()
-				if !bestSellOrderExists || 
-					order.Price < bestSellOrder.Price || 
+				bestSellOrder, bestSellOrderExists = engine.book.BestSell()
+				if !bestSellOrderExists ||
+					order.Price < bestSellOrder.Price ||
 					order.RemainingQuantity == 0 {
+					if order.RemainingQuantity == 0 {
+						order.Status = domain.StatusFilled
+					} else {
+						order.Status = domain.StatusPartiallyFilled
+					}
 					break
 				}
 			}
+
+			return order, trades, nil
 		}
 	} else if order.Side == domain.SideSell {
 

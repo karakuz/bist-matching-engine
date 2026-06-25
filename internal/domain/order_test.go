@@ -58,6 +58,15 @@ func TestNewOrder_RejectsInvalidInput(t *testing.T) {
 			quantity: 0,
 			wantErr:  ErrInvalidQty,
 		},
+		{
+			name:     "invalid tick size",
+			id:       uuid.NewString(),
+			symbol:   symbol,
+			side:     SideBuy,
+			price:    1051,
+			quantity: 1,
+			wantErr:  ErrInvalidTickSize,
+		},
 	}
 
 	for _, tt := range tests {

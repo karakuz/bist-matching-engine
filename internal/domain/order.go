@@ -7,7 +7,7 @@ import (
 )
 
 // "BUY" || "SELL"
-type Side string 
+type Side string
 
 const (
 	SideBuy  Side = "BUY"
@@ -45,17 +45,22 @@ type Trade struct {
 }
 
 var (
-	ErrInvalidSide    = errors.New("side must be BUY or SELL")
-	ErrInvalidPrice   = errors.New("price must be > 0")
-	ErrInvalidQty     = errors.New("quantity must be > 0")
-	ErrEmptyOrderID   = errors.New("order id cannot be empty")
+	ErrInvalidSide  = errors.New("side must be BUY or SELL")
+	ErrInvalidPrice = errors.New("price must be > 0")
+	ErrInvalidQty   = errors.New("quantity must be > 0")
+	ErrEmptyOrderID = errors.New("order id cannot be empty")
 )
 
 func NewOrder(id string, symbol Symbol, side Side, price, quantity int64, createdAt time.Time) (Order, error) {
 	if strings.TrimSpace(id) == "" {
 		return Order{}, ErrEmptyOrderID
 	}
-	
+
+	err := symbol.ValidateTickOfPrice(price)
+	if err != nil {
+		return Order{}, err
+	}
+
 	if side != SideBuy && side != SideSell {
 		return Order{}, ErrInvalidSide
 	}
