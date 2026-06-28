@@ -9,7 +9,8 @@ type Order = domain.Order
 type Symbol = domain.Symbol
 
 var (
-	ErrInvalidOrderSymbol    = errors.New("Order symbol does not match with Book's symbol")
+	ErrInvalidAddSideConflict   = errors.New("Book has different side than current one on this level")
+	ErrInvalidOrderSymbol    	= errors.New("Order symbol does not match with Book's symbol")
 )
 
 // TODO: update bestBid and bestAsk on update/cancel order operations
@@ -37,11 +38,17 @@ func (book *Book) Add(orders ...Order) error {
 		}
 
 		if order.Side == domain.SideBuy {
+			//check if other side has same level
+			if len(book.sells[order.Price]) > 0 { return ErrInvalidAddSideConflict }
+
 			sideLevels = book.buys
 			if book.bestBid == 0 || order.Price > book.bestBid {
 				book.bestBid = order.Price
 			}
 		} else if order.Side == domain.SideSell {
+			//check if other side has same level
+			if len(book.buys[order.Price]) > 0 { return ErrInvalidAddSideConflict}
+
 			sideLevels = book.sells
 			if book.bestAsk == 0 || order.Price < book.bestAsk {
 				book.bestAsk = order.Price
@@ -95,7 +102,7 @@ func (book *Book) recalculateBestSell() {
 	book.bestAsk = bestSell
 }
 
-func (book *Book) RemoveBestBuy() {
+func (book *Book) removeBestBuy() {
 	bestBuyOrder, bestBuyExists := book.BestBuy()
 
 	if !bestBuyExists {
@@ -128,7 +135,7 @@ func (book *Book) ReduceBestBuy(quantity int64) {
 
 	if firstBid.RemainingQuantity == 0 {
 		firstBid.Status = domain.StatusFilled
-		book.RemoveBestBuy()
+		book.removeBestBuy()
 		return
 	}
 
@@ -152,7 +159,7 @@ func (book *Book) BestSell() (domain.Order, bool) {
 	return level[0], true
 }
 
-func (book *Book) RemoveBestSell() {
+func (book *Book) removeBestSell() {
 	bestSellOrder, bestSellExists := book.BestSell()
 
 	if !bestSellExists {
@@ -184,7 +191,8 @@ func (book *Book) ReduceBestSell(quantity int64) {
 	firstAsk.RemainingQuantity -= quantityCanBeReduced
 
 	if firstAsk.RemainingQuantity == 0 {
-		book.RemoveBestSell()
+		firstAsk.Status = domain.StatusFilled
+		book.removeBestSell()
 		return
 	}
 

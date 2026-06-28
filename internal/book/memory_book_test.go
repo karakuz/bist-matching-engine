@@ -13,13 +13,28 @@ import (
 func TestMemoryBook(t *testing.T) {
 	symbol, err := domain.NewSymbol("ASELS", 10);
 	if err != nil{
-
+		t.Fatalf("Error creating symbol: %v", err)
 	}
+
+	t.Run("same existing level can't be added to other side", func(t *testing.T) {
+		orderBook := NewBook(symbol)
+
+		order1, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideBuy, 1050, 100, time.Now().UTC())
+		if err != nil { t.Fatalf("new order1 failed: %v", err) }
+
+		order2, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideSell, 1050, 100, time.Now().UTC())
+		if err != nil { t.Fatalf("new order1 failed: %v", err)}
+	
+		addErr := orderBook.Add(order1, order2)
+		if addErr != ErrInvalidAddSideConflict{
+			t.Fatalf("Expected ErrInvalidAddSideConflict, got %v", addErr)
+		}
+	})
+
 
 	t.Run("best buy returns highest price", func(t *testing.T) {
 		var smallerPrice int64 = 1050
 		var highestPrice int64 = 1100
-
 
 		orderBook := NewBook(symbol)
 
