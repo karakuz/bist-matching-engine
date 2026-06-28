@@ -16,6 +16,8 @@ var (
 
 type Book struct {
 	Symbol Symbol
+
+	lastTradePrice int64
 	
 	// maps: lookup by price is fast but but best bid/ask discovery is slow (O(n) scan)
 	buys  map[int64][]Order
@@ -26,28 +28,31 @@ type Book struct {
 	bestAsk int64//sell
 }
 
-func (book *Book) Add(order Order) error {
-	var sideLevels map[int64][]Order
+func (book *Book) Add(orders ...Order) error {
+	for _, order := range orders{
+		var sideLevels map[int64][]Order
 
-	if order.Symbol.Code != book.Symbol.Code{
-		return ErrInvalidOrderSymbol
-	}
-
-	if order.Side == domain.SideBuy {
-		sideLevels = book.buys
-		if book.bestBid == 0 || order.Price > book.bestBid {
-			book.bestBid = order.Price
+		if order.Symbol.Code != book.Symbol.Code{
+			return ErrInvalidOrderSymbol
 		}
-	} else if order.Side == domain.SideSell {
-		sideLevels = book.sells
-		if book.bestAsk == 0 || order.Price < book.bestAsk {
-			book.bestAsk = order.Price
-		}
-	} else {
-		return domain.ErrInvalidSide
-	}
 
-	sideLevels[order.Price] = append(sideLevels[order.Price], order)
+		if order.Side == domain.SideBuy {
+			sideLevels = book.buys
+			if book.bestBid == 0 || order.Price > book.bestBid {
+				book.bestBid = order.Price
+			}
+		} else if order.Side == domain.SideSell {
+			sideLevels = book.sells
+			if book.bestAsk == 0 || order.Price < book.bestAsk {
+				book.bestAsk = order.Price
+			}
+		} else {
+			return domain.ErrInvalidSide
+		}
+
+		sideLevels[order.Price] = append(sideLevels[order.Price], order)
+	}
+	
 
 	return nil
 }
@@ -190,7 +195,20 @@ func (book *Book) ReduceBestSell(quantity int64) {
 func NewBook(symbol Symbol) *Book {
 	return &Book{
 		Symbol: symbol,
+		lastTradePrice: 0,
 		buys:  make(map[int64][]Order),
 		sells: make(map[int64][]Order),
 	}
+}
+
+func (book *Book) GetLevel(side domain.Side, price int64) []Order{
+	if side == domain.SideBuy {
+		return book.buys[price]
+	}
+
+	return book.sells[price]
+}
+
+func (book *Book) UpdateLastTradePrice(price int64){
+	book.lastTradePrice = price
 }

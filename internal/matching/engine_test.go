@@ -25,7 +25,7 @@ func createSymbol(t *testing.T) domain.Symbol {
 func createOrder(t *testing.T, symbol Symbol, side domain.Side, price int64, qty int64) domain.Order {
 	t.Helper()
 
-	now := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 
 	order, err := domain.NewOrder(uuid.NewString(), symbol, side, price, qty, now)
 	if err != nil {
@@ -52,8 +52,53 @@ func getTestBook(t *testing.T) book.Book {
 	return *orderBook
 }
 
-func TestEngine(t *testing.T) {
+/*
+	Price priority explicitly
+	You partly cover this, but a focused test should prove lower sell price is matched before higher sell price, regardless of insertion order.
+
+	Multiple fills at same price level
+	Example: two resting sells at 302, incoming buy qty fills both.
+
+	Trade price uses resting order price
+	You assert this in some tests, but a dedicated test is still useful: incoming BUY 305, resting SELL 302, trade price must be 302.
+
+	Last trade price updates after BUY trade
+	Also required by updated roadmap if you’ve added last trade price behavior.
+*/
+
+func TestEngineForBuyOrders(t *testing.T) {
 	symbol := createSymbol(t)
+
+	/* t.Run("incoming buy order", func(t *testing.T) {
+		t.Skip("TODO");
+	}) */
+
+	t.Run("incoming buy order - price is less than best price", func(t *testing.T) {
+		orderBook := getTestBook(t)
+		engine := NewEngine(&orderBook)
+
+		order := createOrder(t, symbol, domain.SideBuy, 299, 100)
+		returnedOrder, trade, err := engine.Submit(&order)
+
+		if err != nil {
+			t.Fatalf("engine.Submit failed: %v", err)
+		}
+		if returnedOrder != &order {
+			t.Fatalf("expected reteurned order to be same with order")
+		}
+
+		if len(trade) != 0 {
+			t.Fatalf("expected trade slice to have length: 0, got %d", len(trade))
+		}
+
+		orders := engine.book.GetLevel(domain.SideBuy, 299)
+		if orders == nil {
+			t.Fatalf("expected level with 299 not nil")
+		}
+		if orders[0].ID != order.ID {
+			t.Fatalf("expected resting order ID %s, got %s", order.ID, orders[0].ID)
+		}
+	})
 
 	t.Run("incoming buy order - best sell does not exists", func(t *testing.T) {
 		orderBook := book.NewBook(symbol)
@@ -74,17 +119,24 @@ func TestEngine(t *testing.T) {
 		}
 		if returnedOrder.RemainingQuantity != 100 {
 			t.Fatalf("expected returnedOrder.RemainingQuantity to be 100, got %d", returnedOrder.RemainingQuantity)
-		}		
+		}
+
+		bestBuyOrder, exists := engine.book.BestBuy()
+		if !exists {
+			t.Fatal("expected incoming buy to rest in book")
+		}
+		if bestBuyOrder.ID != order.ID {
+			t.Fatal("expected incoming buy to be best buy")
+		}
 	})
 
 	t.Run("incoming buy order - full match with best sell order price and quantity", func(t *testing.T) {
 		orderBook := getTestBook(t)
 		engine := NewEngine(&orderBook)
 
-		symbol := createSymbol(t)
 		order := createOrder(t, symbol, domain.SideBuy, 302, 100)
-		initialBestSellOrder, _  := engine.book.BestSell()
-	
+		initialBestSellOrder, _ := engine.book.BestSell()
+
 		returnedOrder, trade, err := engine.Submit(&order)
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -113,16 +165,16 @@ func TestEngine(t *testing.T) {
 		}
 
 		firstTrade := trade[0]
-		if firstTrade.Quantity != 100{
+		if firstTrade.Quantity != 100 {
 			t.Fatalf("expected trade qty to be 100, got %d", firstTrade.Quantity)
 		}
-		if firstTrade.BuyOrderID != order.ID{
+		if firstTrade.BuyOrderID != order.ID {
 			t.Fatalf("expected firstTrade.BuyOrderID equal to order.ID, expected: %v, got: %v", order.ID, firstTrade.BuyOrderID)
 		}
-		if firstTrade.SellOrderID != initialBestSellOrder.ID{
+		if firstTrade.SellOrderID != initialBestSellOrder.ID {
 			t.Fatalf("expected firstTrade.BuyOrderID equal to order.ID, expected: %v, got: %v", order.ID, firstTrade.BuyOrderID)
 		}
-		if firstTrade.Price != 302{
+		if firstTrade.Price != 302 {
 			t.Fatalf("expected firstTrade.Price equal to 302,got: %v", firstTrade.Price)
 		}
 	})
@@ -162,13 +214,13 @@ func TestEngine(t *testing.T) {
 		}
 
 		firstTrade := trade[0]
-		if firstTrade.Quantity != 100{
+		if firstTrade.Quantity != 100 {
 			t.Fatalf("expected trade qty to be 100, got %d", firstTrade.Quantity)
 		}
-		if firstTrade.BuyOrderID != order.ID{
+		if firstTrade.BuyOrderID != order.ID {
 			t.Fatalf("expected firstTrade.BuyOrderID equal to order.ID, expected: %v, got: %v", order.ID, firstTrade.BuyOrderID)
 		}
-		if firstTrade.Price != 302{
+		if firstTrade.Price != 302 {
 			t.Fatalf("expected firstTrade.Price equal to 302, got: %v", firstTrade.Price)
 		}
 	})
@@ -209,13 +261,13 @@ func TestEngine(t *testing.T) {
 			t.Fatalf("expected trade slice to have length: 1, got %d", len(trade))
 		}
 		firstTrade := trade[0]
-		if firstTrade.Quantity != 50{
+		if firstTrade.Quantity != 50 {
 			t.Fatalf("expected trade qty to be 50, got %d", firstTrade.Quantity)
 		}
-		if firstTrade.BuyOrderID != order.ID{
+		if firstTrade.BuyOrderID != order.ID {
 			t.Fatalf("expected firstTrade.BuyOrderID equal to order.ID, expected: %v, got: %v", order.ID, firstTrade.BuyOrderID)
 		}
-		if firstTrade.Price != 302{
+		if firstTrade.Price != 302 {
 			t.Fatalf("expected firstTrade.Price equal to 302, got: %v", firstTrade.Price)
 		}
 	})
@@ -264,46 +316,265 @@ func TestEngine(t *testing.T) {
 		if firstTrade.Quantity != 100 {
 			t.Fatalf("expected first trade qty to be 100, got %d", firstTrade.Quantity)
 		}
-		if firstTrade.BuyOrderID != order.ID{
+		if firstTrade.BuyOrderID != order.ID {
 			t.Fatalf("expected firstTrade.BuyOrderID equal to order.ID, expected: %v, got: %v", order.ID, firstTrade.BuyOrderID)
 		}
-		if firstTrade.Price != 302{
+		if firstTrade.Price != 302 {
 			t.Fatalf("expected firstTrade.Price equal to 302, got: %v", firstTrade.Price)
 		}
-		if firstTrade.SellOrderID != initialBestSellOrder.ID{
+		if firstTrade.SellOrderID != initialBestSellOrder.ID {
 			t.Fatalf("expected firstTrade.SellOrderID equal to initialBestSellOrder.ID, firstTrade.SellOrderID: %v, initialBestSellOrder.ID: %v", firstTrade.SellOrderID, initialBestSellOrder.ID)
 		}
 
 		if secondTrade.Quantity != 50 {
 			t.Fatalf("expected secondTrade trade qty to be 50, got %d", secondTrade.Quantity)
 		}
-		if secondTrade.Price != 303{
+		if secondTrade.Price != 303 {
 			t.Fatalf("expected secondTrade.Price equal to 303, got: %d", secondTrade.Price)
 		}
-		if secondTrade.SellOrderID != bestSellOrder.ID{
+		if secondTrade.SellOrderID != bestSellOrder.ID {
 			t.Fatalf("expected secondTrade.SellOrderID equal to bestSellOrder.ID, secondTrade.SellOrderID: %v, initialBestSellOrder.ID: %v", secondTrade.SellOrderID, initialBestSellOrder.ID)
 		}
 
 	})
 
-	t.Run("partial fill of resting order", func(t *testing.T) {
-		t.Skip("TODO")
+	t.Run("incoming buy order - price and quantity exceeds all sell orders", func(t *testing.T) {
+		tests := []struct {
+			name                  string
+			buyQty                int64
+			wantTradeCount        int64
+			wantFirstTradeQty     int64
+			wantFirstTradePrice   int64
+			wantSecondTradeQty    int64
+			wantSecondTradePrice  int64
+			wantRemainingQuantity int64
+			wantStatus            domain.OrderStatus
+			wantBestSellOrder     bool
+			wantBestBuyOrderPrice int64
+		}{
+			{
+				name:                  "buy quantity exceeds both resting sells",
+				buyQty:                75,
+				wantTradeCount:        1,
+				wantFirstTradeQty:     75,
+				wantFirstTradePrice:   302,
+				wantSecondTradeQty:    0,
+				wantSecondTradePrice:  0,
+				wantRemainingQuantity: 0,
+				wantStatus:            domain.StatusFilled,
+				wantBestSellOrder:     true,
+				wantBestBuyOrderPrice: 301,
+			}, {
+				name:                  "buy quantity matches fully with best sell order",
+				buyQty:                100,
+				wantTradeCount:        1,
+				wantFirstTradeQty:     100,
+				wantFirstTradePrice:   302,
+				wantSecondTradeQty:    0,
+				wantSecondTradePrice:  0,
+				wantRemainingQuantity: 0,
+				wantStatus:            domain.StatusFilled,
+				wantBestSellOrder:     true,
+				wantBestBuyOrderPrice: 301,
+			}, {
+				name:                  "buy quantity matches fully with best sell order, 2nd best resting sell order remains",
+				buyQty:                150,
+				wantTradeCount:        2,
+				wantFirstTradeQty:     100,
+				wantFirstTradePrice:   302,
+				wantSecondTradeQty:    50,
+				wantSecondTradePrice:  303,
+				wantRemainingQuantity: 0,
+				wantStatus:            domain.StatusFilled,
+				wantBestSellOrder:     true,
+				wantBestBuyOrderPrice: 301,
+			}, {
+				name:                  "buy quantity matches fully with 1st and 2nd best sell order",
+				buyQty:                200,
+				wantTradeCount:        2,
+				wantFirstTradeQty:     100,
+				wantFirstTradePrice:   302,
+				wantSecondTradeQty:    100,
+				wantSecondTradePrice:  303,
+				wantRemainingQuantity: 0,
+				wantStatus:            domain.StatusFilled,
+				wantBestSellOrder:     false,
+				wantBestBuyOrderPrice: 301,
+			}, {
+				name:                  "buy quantity matches fully with 1st and 2nd best sell order - 50 incoming qty remains",
+				buyQty:                250,
+				wantTradeCount:        2,
+				wantFirstTradeQty:     100,
+				wantFirstTradePrice:   302,
+				wantSecondTradeQty:    100,
+				wantSecondTradePrice:  303,
+				wantRemainingQuantity: 50,
+				wantStatus:            domain.StatusPartiallyFilled,
+				wantBestSellOrder:     false,
+				wantBestBuyOrderPrice: 304,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				orderBook := getTestBook(t)
+				engine := NewEngine(&orderBook)
+				order := createOrder(t, symbol, domain.SideBuy, 304, tt.buyQty)
+
+				initialBestSellOrder, _ := engine.book.BestSell()
+
+				returnedOrder, trades, err := engine.Submit(&order)
+				if err != nil {
+					t.Fatalf("engine.Submit failed: %v", err)
+				}
+
+				if returnedOrder.RemainingQuantity != tt.wantRemainingQuantity {
+					t.Fatalf("expected RemainingQuantity=%d, got %d", tt.wantRemainingQuantity, returnedOrder.RemainingQuantity)
+				}
+				if returnedOrder.Status != tt.wantStatus {
+					t.Fatalf("expected order status = %v, got %v", tt.wantStatus, order.Status)
+				}
+
+				_, bestSellOrderExists := engine.book.BestSell()
+				if bestSellOrderExists != tt.wantBestSellOrder {
+					t.Fatalf("best sell order existence, expected %t, got %t", tt.wantBestSellOrder, bestSellOrderExists)
+				}
+
+				bestBuyOrder, bestBuyOrderExists := engine.book.BestBuy()
+				if !bestBuyOrderExists {
+					t.Fatalf("expected best buy order to be existed, got %t", bestBuyOrderExists)
+				}
+				if bestBuyOrder.Price != tt.wantBestBuyOrderPrice {
+					t.Fatalf("expected best buy order's price %d, got %d", tt.wantBestBuyOrderPrice, bestBuyOrder.Price)
+				}
+				if returnedOrder.RemainingQuantity != tt.wantRemainingQuantity {
+					t.Fatalf("expected returnedOrder.RemainingQuantity to be %d, got: %d", tt.wantRemainingQuantity, returnedOrder.RemainingQuantity)
+				}
+
+				if len(trades) != int(tt.wantTradeCount) {
+					t.Fatalf("expected %d trades, got %d", tt.wantTradeCount, len(trades))
+				}
+
+				firstTrade := trades[0]
+
+				if firstTrade.Quantity != tt.wantFirstTradeQty {
+					t.Fatalf("expected first trades qty to be %d, got %d", tt.wantFirstTradeQty, firstTrade.Quantity)
+				}
+				if firstTrade.BuyOrderID != order.ID {
+					t.Fatalf("expected firstTrade.BuyOrderID equal to order.ID, expected: %v, got: %v", order.ID, firstTrade.BuyOrderID)
+				}
+				if firstTrade.Price != tt.wantFirstTradePrice {
+					t.Fatalf("expected firstTrade.Price equal to %d, got: %d", tt.wantFirstTradePrice, firstTrade.Price)
+				}
+				if firstTrade.SellOrderID != initialBestSellOrder.ID {
+					t.Fatalf("expected firstTrade.SellOrderID equal to initialBestSellOrder.ID, firstTrade.SellOrderID: %v, initialBestSellOrder.ID: %v", firstTrade.SellOrderID, initialBestSellOrder.ID)
+				}
+
+				if len(trades) == 2 {
+					secondTrade := trades[1]
+
+					if secondTrade.Quantity != tt.wantSecondTradeQty {
+						t.Fatalf("expected secondTrade trade qty to be %d, got %d", tt.wantSecondTradeQty, secondTrade.Quantity)
+					}
+					if secondTrade.Price != tt.wantSecondTradePrice {
+						t.Fatalf("expected secondTrade.Price equal to %d, got: %d", tt.wantSecondTradePrice, secondTrade.Price)
+					}
+				}
+			})
+		}
+
 	})
 
-	t.Run("multiple fills", func(t *testing.T) {
-		t.Skip("TODO")
-	})
+	//Time priority at same sell price
+	t.Run("incoming buy order - time priority at same sell price", func(t *testing.T) {
+		tests := []struct {
+			name                  string
+			buyQty                int64
+			wantTradeCount        int
+			wantRemainingQuantity int64
+		}{
+			{
+				name:                  "buy quantity exceeds both resting sells",
+				buyQty:                25,
+				wantTradeCount:        2,
+				wantRemainingQuantity: 5,
+			},
+			{
+				name:                  "buy quantity exactly fills both resting sells",
+				buyQty:                20,
+				wantTradeCount:        2,
+				wantRemainingQuantity: 0,
+			},
+			{
+				name:                  "buy quantity fills first and partially fills second",
+				buyQty:                15,
+				wantTradeCount:        2,
+				wantRemainingQuantity: 0,
+			},
+			{
+				name:                  "buy quantity only partially fills first",
+				buyQty:                5,
+				wantTradeCount:        1,
+				wantRemainingQuantity: 0,
+			},
+		}
 
-	t.Run("price priority", func(t *testing.T) {
-		t.Skip("TODO")
-	})
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				orderBook := book.NewBook(symbol)
 
-	t.Run("time priority", func(t *testing.T) {
-		t.Skip("TODO")
-	})
+				t1 := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
+				t2 := time.Date(2026, 5, 2, 10, 0, 0, 1, time.UTC)
+				t3 := time.Date(2026, 5, 2, 10, 0, 0, 2, time.UTC)
 
-	//BUY 10.10 | SELL 10.00
-	t.Run("trade price uses resting order price", func(t *testing.T) {
+				t1SellOrder, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideSell, 300, 10, t1)
+				if err != nil {
+					t.Fatalf("domain.NewOrder failed: %v", err)
+				}
+
+				t2SellOrder, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideSell, 300, 10, t2)
+				if err != nil {
+					t.Fatalf("domain.NewOrder failed: %v", err)
+				}
+
+				t3BuyOrder, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideBuy, 300, tt.buyQty, t3)
+				if err != nil {
+					t.Fatalf("domain.NewOrder failed: %v", err)
+				}
+
+				if err := orderBook.Add(t1SellOrder, t2SellOrder); err != nil {
+					t.Fatalf("orderBook.Add failed: %v", err)
+				}
+
+				engine := NewEngine(orderBook)
+
+				returnedOrder, trades, err := engine.Submit(&t3BuyOrder)
+				if err != nil {
+					t.Fatalf("engine.Submit failed: %v", err)
+				}
+
+				if len(trades) != tt.wantTradeCount {
+					t.Fatalf("expected %d trades, got %d", tt.wantTradeCount, len(trades))
+				}
+
+				if returnedOrder.RemainingQuantity != tt.wantRemainingQuantity {
+					t.Fatalf("expected remaining quantity %d, got %d", tt.wantRemainingQuantity, returnedOrder.RemainingQuantity)
+				}
+
+				if len(trades) >= 1 && trades[0].SellOrderID != t1SellOrder.ID {
+					t.Fatalf("expected first trade to use first resting sell")
+				}
+
+				if len(trades) >= 2 && trades[1].SellOrderID != t2SellOrder.ID {
+					t.Fatalf("expected second trade to use second resting sell")
+				}
+			})
+		}
+	})
+}
+
+func TestEngineForSell(t *testing.T) {
+	t.Run("", func(t *testing.T) {
 		t.Skip("TODO")
 	})
 

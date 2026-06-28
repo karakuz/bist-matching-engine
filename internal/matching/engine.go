@@ -37,22 +37,23 @@ func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade
 		bestSellOrder, bestSellOrderExists := engine.book.BestSell()
 
 		if !bestSellOrderExists {
-			// todo
+			engine.book.Add(*order)
 			return order, []domain.Trade{}, nil
 		}
 
 		if order.Price < bestSellOrder.Price {
-			// todo
+			engine.book.Add(*order)
 			return order, []domain.Trade{}, nil
 		} else if order.Price == bestSellOrder.Price {
-			if bestSellOrder.RemainingQuantity >= order.Quantity {
+			//incoming order full match
+			if bestSellOrder.RemainingQuantity >= order.RemainingQuantity {
 				trade := domain.Trade{
 					ID:          uuid.NewString(),
 					Symbol:      order.Symbol,
 					BuyOrderID:  order.ID,
 					SellOrderID: bestSellOrder.ID,
 					Price:       bestSellOrder.Price,
-					Quantity:    order.Quantity,
+					Quantity:    order.RemainingQuantity,
 					CreatedAt:   time.Now().UTC(),
 				}
 				trades = append(trades, trade)
@@ -63,7 +64,8 @@ func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade
 				order.Status = domain.StatusFilled
 
 				return order, trades, nil
-			} else if bestSellOrder.RemainingQuantity < order.Quantity {
+			} else if bestSellOrder.RemainingQuantity < order.RemainingQuantity {
+				//resting order full match
 				trade := domain.Trade{
 					ID:          uuid.NewString(),
 					Symbol:      order.Symbol,
@@ -75,15 +77,22 @@ func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade
 				}
 				trades = append(trades, trade)
 
-				order.RemainingQuantity = order.Quantity - bestSellOrder.RemainingQuantity
+				order.RemainingQuantity -= bestSellOrder.RemainingQuantity
 				order.Status = domain.StatusPartiallyFilled
 
-				engine.book.RemoveBestSell()
-				engine.book.Add(*order)
+				engine.book.ReduceBestSell(bestSellOrder.RemainingQuantity)
 
-				return order, trades, nil
+				nextBestSellOrder, nextBestSellOrderExists := engine.book.BestSell()
+				if nextBestSellOrderExists && nextBestSellOrder.Price == order.Price{
+					returnedOrder, nextTrades, err := engine.Submit(order)
+					return returnedOrder, append(trades, nextTrades...), err
+				} else{
+					engine.book.Add(*order)
+					return order, trades, nil
+				}
 			}
 		} else if order.Price > bestSellOrder.Price {
+			//todo: test
 			for {
 				if order.RemainingQuantity > bestSellOrder.RemainingQuantity {
 					trade := domain.Trade{
@@ -98,6 +107,7 @@ func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade
 					trades = append(trades, trade)
 
 					order.RemainingQuantity -= bestSellOrder.RemainingQuantity
+					order.Status = domain.StatusPartiallyFilled
 					engine.book.RemoveBestSell()
 				} else if order.RemainingQuantity <= bestSellOrder.RemainingQuantity {
 					trade := domain.Trade{
@@ -113,19 +123,20 @@ func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade
 
 					engine.book.ReduceBestSell(order.RemainingQuantity)
 					order.RemainingQuantity = 0
-			 	}
+					order.Status = domain.StatusFilled
+				}
 
 				bestSellOrder, bestSellOrderExists = engine.book.BestSell()
 				if !bestSellOrderExists ||
 					order.Price < bestSellOrder.Price ||
 					order.RemainingQuantity == 0 {
-					if order.RemainingQuantity == 0 {
-						order.Status = domain.StatusFilled
-					} else {
-						order.Status = domain.StatusPartiallyFilled
-					}
 					break
 				}
+			}
+
+			//if all sell orders are traded and buy order qty remains
+			if bestSellOrder.RemainingQuantity == 0 && order.RemainingQuantity > 0 {
+				engine.book.Add(*order)
 			}
 
 			return order, trades, nil
