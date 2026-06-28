@@ -52,28 +52,10 @@ func getTestBook(t *testing.T) book.Book {
 	return *orderBook
 }
 
-/*
-	Price priority explicitly
-	You partly cover this, but a focused test should prove lower sell price is matched before higher sell price, regardless of insertion order.
-
-	Multiple fills at same price level
-	Example: two resting sells at 302, incoming buy qty fills both.
-
-	Trade price uses resting order price
-	You assert this in some tests, but a dedicated test is still useful: incoming BUY 305, resting SELL 302, trade price must be 302.
-
-	Last trade price updates after BUY trade
-	Also required by updated roadmap if you’ve added last trade price behavior.
-*/
-
 func TestEngineForBuyOrders(t *testing.T) {
 	symbol := createSymbol(t)
 
-	/* t.Run("incoming buy order", func(t *testing.T) {
-		t.Skip("TODO");
-	}) */
-
-	t.Run("incoming buy order - price is less than best price", func(t *testing.T) {
+	t.Run("price is less than best price", func(t *testing.T) {
 		orderBook := getTestBook(t)
 		engine := NewEngine(&orderBook)
 
@@ -84,7 +66,10 @@ func TestEngineForBuyOrders(t *testing.T) {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
 		if returnedOrder != &order {
-			t.Fatalf("expected reteurned order to be same with order")
+			t.Fatalf("expected returned order to be same with order")
+		}
+		if returnedOrder.Status != domain.StatusOpen{
+			t.Fatalf("expected returned to have status OPEN, got: %s", returnedOrder.Status)
 		}
 
 		if len(trade) != 0 {
@@ -100,7 +85,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 		}
 	})
 
-	t.Run("incoming buy order - best sell does not exists", func(t *testing.T) {
+	t.Run("best sell does not exists", func(t *testing.T) {
 		orderBook := book.NewBook(symbol)
 		engine := NewEngine(orderBook)
 
@@ -120,6 +105,9 @@ func TestEngineForBuyOrders(t *testing.T) {
 		if returnedOrder.RemainingQuantity != 100 {
 			t.Fatalf("expected returnedOrder.RemainingQuantity to be 100, got %d", returnedOrder.RemainingQuantity)
 		}
+		if returnedOrder.Status != domain.StatusOpen{
+			t.Fatalf("expected returned to have status OPEN, got: %s", returnedOrder.Status)
+		}
 
 		bestBuyOrder, exists := engine.book.BestBuy()
 		if !exists {
@@ -130,7 +118,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 		}
 	})
 
-	t.Run("incoming buy order - full match with best sell order price and quantity", func(t *testing.T) {
+	t.Run("full match with best sell order price and quantity", func(t *testing.T) {
 		orderBook := getTestBook(t)
 		engine := NewEngine(&orderBook)
 
@@ -175,11 +163,15 @@ func TestEngineForBuyOrders(t *testing.T) {
 			t.Fatalf("expected firstTrade.BuyOrderID equal to order.ID, expected: %v, got: %v", order.ID, firstTrade.BuyOrderID)
 		}
 		if firstTrade.Price != 302 {
-			t.Fatalf("expected firstTrade.Price equal to 302,got: %v", firstTrade.Price)
+			t.Fatalf("expected firstTrade.Price equal to 302,got: %d", firstTrade.Price)
+		}
+
+		if engine.book.GetLastTradePrice() != 302 {
+			t.Fatalf("expected last trade price equal to 302, got: %d", engine.book.GetLastTradePrice())
 		}
 	})
 
-	t.Run("incoming buy order - partial fill of incoming order with best sell order", func(t *testing.T) {
+	t.Run("partial fill of incoming order with best sell order", func(t *testing.T) {
 		orderBook := getTestBook(t)
 		engine := NewEngine(&orderBook)
 
@@ -223,9 +215,13 @@ func TestEngineForBuyOrders(t *testing.T) {
 		if firstTrade.Price != 302 {
 			t.Fatalf("expected firstTrade.Price equal to 302, got: %v", firstTrade.Price)
 		}
+
+		if engine.book.GetLastTradePrice() != 302 {
+			t.Fatalf("expected last trade price equal to 302, got: %d", engine.book.GetLastTradePrice())
+		}
 	})
 
-	t.Run("incoming buy order - partial fill of resting(best sell) order", func(t *testing.T) {
+	t.Run("partial fill of resting(best sell) order", func(t *testing.T) {
 		orderBook := getTestBook(t)
 		engine := NewEngine(&orderBook)
 
@@ -270,9 +266,13 @@ func TestEngineForBuyOrders(t *testing.T) {
 		if firstTrade.Price != 302 {
 			t.Fatalf("expected firstTrade.Price equal to 302, got: %v", firstTrade.Price)
 		}
+
+		if engine.book.GetLastTradePrice() != 302 {
+			t.Fatalf("expected last trade price equal to 302, got: %d", engine.book.GetLastTradePrice())
+		}
 	})
 
-	t.Run("incoming buy order - price exceeds best sell price and best price quantity", func(t *testing.T) {
+	t.Run("price exceeds best sell price and best price quantity", func(t *testing.T) {
 		orderBook := getTestBook(t)
 		engine := NewEngine(&orderBook)
 
@@ -336,9 +336,12 @@ func TestEngineForBuyOrders(t *testing.T) {
 			t.Fatalf("expected secondTrade.SellOrderID equal to bestSellOrder.ID, secondTrade.SellOrderID: %v, initialBestSellOrder.ID: %v", secondTrade.SellOrderID, initialBestSellOrder.ID)
 		}
 
+		if engine.book.GetLastTradePrice() != 303 {
+			t.Fatalf("expected last trade price equal to 303, got: %d", engine.book.GetLastTradePrice())
+		}
 	})
 
-	t.Run("incoming buy order - price and quantity exceeds all sell orders", func(t *testing.T) {
+	t.Run("price and quantity exceeds all sell orders", func(t *testing.T) {
 		tests := []struct {
 			name                  string
 			buyQty                int64
@@ -351,6 +354,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 			wantStatus            domain.OrderStatus
 			wantBestSellOrder     bool
 			wantBestBuyOrderPrice int64
+			wantLastTradePrice    int64
 		}{
 			{
 				name:                  "buy quantity exceeds both resting sells",
@@ -364,6 +368,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 				wantStatus:            domain.StatusFilled,
 				wantBestSellOrder:     true,
 				wantBestBuyOrderPrice: 301,
+				wantLastTradePrice:    302,
 			}, {
 				name:                  "buy quantity matches fully with best sell order",
 				buyQty:                100,
@@ -376,6 +381,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 				wantStatus:            domain.StatusFilled,
 				wantBestSellOrder:     true,
 				wantBestBuyOrderPrice: 301,
+				wantLastTradePrice:    302,
 			}, {
 				name:                  "buy quantity matches fully with best sell order, 2nd best resting sell order remains",
 				buyQty:                150,
@@ -388,6 +394,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 				wantStatus:            domain.StatusFilled,
 				wantBestSellOrder:     true,
 				wantBestBuyOrderPrice: 301,
+				wantLastTradePrice:    303,
 			}, {
 				name:                  "buy quantity matches fully with 1st and 2nd best sell order",
 				buyQty:                200,
@@ -400,6 +407,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 				wantStatus:            domain.StatusFilled,
 				wantBestSellOrder:     false,
 				wantBestBuyOrderPrice: 301,
+				wantLastTradePrice:    303,
 			}, {
 				name:                  "buy quantity matches fully with 1st and 2nd best sell order - 50 incoming qty remains",
 				buyQty:                250,
@@ -412,6 +420,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 				wantStatus:            domain.StatusPartiallyFilled,
 				wantBestSellOrder:     false,
 				wantBestBuyOrderPrice: 304,
+				wantLastTradePrice:    303,
 			},
 		}
 
@@ -480,13 +489,16 @@ func TestEngineForBuyOrders(t *testing.T) {
 						t.Fatalf("expected secondTrade.Price equal to %d, got: %d", tt.wantSecondTradePrice, secondTrade.Price)
 					}
 				}
+
+				if engine.book.GetLastTradePrice() != tt.wantLastTradePrice {
+					t.Fatalf("expected last trade price equal to %d, got: %d", engine.book.GetLastTradePrice(), tt.wantLastTradePrice)
+				}
 			})
 		}
 
 	})
 
-	//Time priority at same sell price
-	t.Run("incoming buy order - time priority at same sell price", func(t *testing.T) {
+	t.Run("time priority at same sell price", func(t *testing.T) {
 		tests := []struct {
 			name                  string
 			buyQty                int64
@@ -500,7 +512,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 				wantRemainingQuantity: 5,
 			},
 			{
-				name:                  "buy quantity exactly fills both resting sells",
+				name:                  "buy quantity exactly fills both resting sells(multiple fills at same price level)",
 				buyQty:                20,
 				wantTradeCount:        2,
 				wantRemainingQuantity: 0,
@@ -569,6 +581,28 @@ func TestEngineForBuyOrders(t *testing.T) {
 					t.Fatalf("expected second trade to use second resting sell")
 				}
 			})
+		}
+	})
+
+	//incoming BUY 305, resting SELL 302, trade price must be 302.
+	t.Run("trade price uses resting order price", func(t *testing.T) {
+		orderBook := getTestBook(t)
+		engine := NewEngine(&orderBook)
+
+		order := createOrder(t, symbol, domain.SideBuy, 305, 100)
+		_, trade, err := engine.Submit(&order)
+
+		if err != nil {
+			t.Fatalf("engine.Submit failed: %v", err)
+		}
+		if len(trade) != 1 {
+			t.Fatalf("expected 1 trade, got: %d", len(trade))
+		}
+		if trade[0].Price != 302 {
+			t.Fatalf("expected trade price to be 302, got: %d", trade[0].Price)
+		}
+		if engine.book.GetLastTradePrice() != 302 {
+			t.Fatalf("expected last trade price to be 302, got: %d", engine.book.GetLastTradePrice())
 		}
 	})
 }
