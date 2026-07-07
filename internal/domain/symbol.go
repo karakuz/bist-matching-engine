@@ -12,7 +12,6 @@ var (
 )
 
 type Symbol struct{
-	ID string
 	Code string
 	TickSize int64
 }

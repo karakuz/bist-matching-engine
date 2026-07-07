@@ -36,6 +36,8 @@ func createOrder(t *testing.T, symbol Symbol, side domain.Side, price int64, qty
 }
 
 func getTestBook(t *testing.T) book.Book {
+	t.Helper()
+
 	symbol := createSymbol(t)
 
 	order1 := createOrder(t, symbol, domain.SideBuy, 300, 100)
@@ -60,7 +62,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 		engine := NewEngine(&orderBook)
 
 		order := createOrder(t, symbol, domain.SideBuy, 299, 100)
-		returnedOrder, trade, err := engine.Submit(&order)
+		returnedOrder, trades, err := engine.Submit(&order)
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -72,8 +74,8 @@ func TestEngineForBuyOrders(t *testing.T) {
 			t.Fatalf("expected returned to have status OPEN, got: %s", returnedOrder.Status)
 		}
 
-		if len(trade) != 0 {
-			t.Fatalf("expected trade slice to have length: 0, got %d", len(trade))
+		if len(trades) != 0 {
+			t.Fatalf("expected trades slice to have length: 0, got %d", len(trades))
 		}
 
 		orders := engine.book.GetLevel(domain.SideBuy, 299)
@@ -91,7 +93,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideBuy, 300, 100)
 
-		returnedOrder, trade, err := engine.Submit(&order)
+		returnedOrder, trades, err := engine.Submit(&order)
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -99,8 +101,8 @@ func TestEngineForBuyOrders(t *testing.T) {
 		if order != *returnedOrder {
 			t.Fatalf("expected returnedOrder = order, got %+v want %+v", *returnedOrder, order)
 		}
-		if len(trade) != 0 {
-			t.Fatalf("expected len(trade) to be 0, got %d", len(trade))
+		if len(trades) != 0 {
+			t.Fatalf("expected len(trades) to be 0, got %d", len(trades))
 		}
 		if returnedOrder.RemainingQuantity != 100 {
 			t.Fatalf("expected returnedOrder.RemainingQuantity to be 100, got %d", returnedOrder.RemainingQuantity)
@@ -125,7 +127,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 		order := createOrder(t, symbol, domain.SideBuy, 302, 100)
 		initialBestSellOrder, _ := engine.book.BestSell()
 
-		returnedOrder, trade, err := engine.Submit(&order)
+		returnedOrder, trades, err := engine.Submit(&order)
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
@@ -148,11 +150,11 @@ func TestEngineForBuyOrders(t *testing.T) {
 			t.Fatalf("expected best sell order's remaining qty to be 100, got %d", bestSellOrder.RemainingQuantity)
 		}
 
-		if len(trade) != 1 {
-			t.Fatalf("expected trade slice to have length: 1, got %d", len(trade))
+		if len(trades) != 1 {
+			t.Fatalf("expected trades slice to have length: 1, got %d", len(trades))
 		}
 
-		firstTrade := trade[0]
+		firstTrade := trades[0]
 		if firstTrade.Quantity != 100 {
 			t.Fatalf("expected trade qty to be 100, got %d", firstTrade.Quantity)
 		}
@@ -177,7 +179,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideBuy, 302, 150)
 
-		returnedOrder, trade, err := engine.Submit(&order)
+		returnedOrder, trades, err := engine.Submit(&order)
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -190,8 +192,8 @@ func TestEngineForBuyOrders(t *testing.T) {
 			t.Fatalf("expected order status = StatusPartiallyFilled, got %v", order.Status)
 		}
 
-		if len(trade) != 1 {
-			t.Fatalf("expected trade slice to have length: 1, got %d", len(trade))
+		if len(trades) != 1 {
+			t.Fatalf("expected trades slice to have length: 1, got %d", len(trades))
 		}
 
 		bestBuyOrder, bestBuyOrderExists := engine.book.BestBuy()
@@ -205,7 +207,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 			t.Fatalf("expected best buy order's remaining qty to be 100, got %d", bestBuyOrder.RemainingQuantity)
 		}
 
-		firstTrade := trade[0]
+		firstTrade := trades[0]
 		if firstTrade.Quantity != 100 {
 			t.Fatalf("expected trade qty to be 100, got %d", firstTrade.Quantity)
 		}
@@ -227,7 +229,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideBuy, 302, 50)
 
-		returnedOrder, trade, err := engine.Submit(&order)
+		returnedOrder, trades, err := engine.Submit(&order)
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -253,10 +255,10 @@ func TestEngineForBuyOrders(t *testing.T) {
 			t.Fatalf("expected best sell order's status to be 'StatusPartiallyFilled', got %v", bestSellOrder.Status)
 		}
 
-		if len(trade) != 1 {
-			t.Fatalf("expected trade slice to have length: 1, got %d", len(trade))
+		if len(trades) != 1 {
+			t.Fatalf("expected trades slice to have length: 1, got %d", len(trades))
 		}
-		firstTrade := trade[0]
+		firstTrade := trades[0]
 		if firstTrade.Quantity != 50 {
 			t.Fatalf("expected trade qty to be 50, got %d", firstTrade.Quantity)
 		}
@@ -279,14 +281,14 @@ func TestEngineForBuyOrders(t *testing.T) {
 		order := createOrder(t, symbol, domain.SideBuy, 303, 150)
 		initialBestSellOrder, _ := engine.book.BestSell()
 
-		returnedOrder, trade, err := engine.Submit(&order)
+		returnedOrder, trades, err := engine.Submit(&order)
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
 
-		if len(trade) != 2 {
-			t.Fatalf("expected 2 trades, got %d", len(trade))
+		if len(trades) != 2 {
+			t.Fatalf("expected 2 trades, got %d", len(trades))
 		}
 
 		if returnedOrder.RemainingQuantity != 0 {
@@ -310,8 +312,8 @@ func TestEngineForBuyOrders(t *testing.T) {
 			t.Fatalf("expected best sell order's status to be 'StatusPartiallyFilled', got %v", bestSellOrder.Status)
 		}
 
-		firstTrade := trade[0]
-		secondTrade := trade[1]
+		firstTrade := trades[0]
+		secondTrade := trades[1]
 
 		if firstTrade.Quantity != 100 {
 			t.Fatalf("expected first trade qty to be 100, got %d", firstTrade.Quantity)
@@ -616,13 +618,13 @@ func TestEngineForSellOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideSell, 303, 100)
 
-		returnedOrder, trade, err := engine.Submit(&order)
+		returnedOrder, trades, err := engine.Submit(&order)
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
-		if len(trade) != 0 {
-			t.Fatalf("expected 0 trade, got %d", len(trade))
+		if len(trades) != 0 {
+			t.Fatalf("expected 0 trade, got %d", len(trades))
 		}
 		if returnedOrder.Status != domain.StatusOpen {
 			t.Fatalf("expected returnedOrder.Status to be OPEN, got %s", returnedOrder.Status)
@@ -635,13 +637,13 @@ func TestEngineForSellOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideSell, 300, 100)
 
-		returnedOrder, trade, err := engine.Submit(&order)
+		returnedOrder, trades, err := engine.Submit(&order)
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
-		if len(trade) != 0 {
-			t.Fatalf("expected 0 trade, got %d", len(trade))
+		if len(trades) != 0 {
+			t.Fatalf("expected 0 trade, got %d", len(trades))
 		}
 		if returnedOrder.Status != domain.StatusOpen {
 			t.Fatalf("expected returnedOrder.Status to be OPEN, got %s", returnedOrder.Status)

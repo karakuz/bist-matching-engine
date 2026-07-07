@@ -1,4 +1,13 @@
-// internal/storage/postgres.go
 package storage
 
-// TODO: pgx-based repository implementations using raw SQL
+import "github.com/jackc/pgx/v5/pgxpool"
+
+type PostgresStore struct {
+	pool *pgxpool.Pool
+}
+
+func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
+	return &PostgresStore{
+		pool: pool,
+	}
+}

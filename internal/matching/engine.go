@@ -43,7 +43,7 @@ func newTrade(engine *Engine, order *domain.Order, restingOrder domain.Order, qu
 		SellOrderID: SellOrderID,
 		Price:       restingOrder.Price,
 		Quantity:    quantity,
-		CreatedAt:   time.Now().UTC(),
+		CreatedAt:   time.Now().UTC().Truncate(time.Microsecond),
 	}
 }
 
