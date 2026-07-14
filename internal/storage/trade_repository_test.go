@@ -24,9 +24,11 @@ func createSymbol(t *testing.T) domain.Symbol {
 func createOrder(t *testing.T, symbol domain.Symbol, side domain.Side, price int64, qty int64) domain.Order {
 	t.Helper()
 
+	var testParticipantId int64 = 1 
+
 	now := time.Now().UTC()
 
-	order, err := domain.NewOrder(uuid.NewString(), symbol, side, price, qty, now)
+	order, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, side, price, qty, now)
 	if err != nil {
 		t.Fatalf("createOrder failed: %v", err)
 	}

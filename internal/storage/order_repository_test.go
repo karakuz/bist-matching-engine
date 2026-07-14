@@ -42,8 +42,11 @@ func TestPostgresStore_InsertAndGetOrderByID(t *testing.T) {
 		t.Fatalf("NewSymbol failed: %v", err)
 	}
 
+	var testParticipantId int64 = 1 
+
 	order, err := domain.NewOrder(
 		uuid.NewString(),
+		testParticipantId,
 		symbol,
 		domain.SideBuy,
 		1050,
@@ -97,8 +100,11 @@ func TestPostgresStore_UpdateOrder(t *testing.T) {
 		t.Fatalf("NewSymbol failed: %v", err)
 	}
 
+	var testParticipantId int64 = 1 
+	
 	order, err := domain.NewOrder(
 		uuid.NewString(),
+		testParticipantId,
 		symbol,
 		domain.SideSell,
 		1060,

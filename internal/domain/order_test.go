@@ -7,6 +7,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var testParticipantId int64 = 1
+
 func TestNewOrder_RejectsInvalidInput(t *testing.T) {
 	symbol, err := NewSymbol("ASELS", 10)
 	if err != nil {
@@ -71,7 +73,7 @@ func TestNewOrder_RejectsInvalidInput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewOrder(tt.id, tt.symbol, tt.side, tt.price, tt.quantity, time.Now().UTC())
+			_, err := NewOrder(tt.id, testParticipantId, tt.symbol, tt.side, tt.price, tt.quantity, time.Now().UTC())
 			if err != tt.wantErr {
 				t.Fatalf("expected error %v, got %v", tt.wantErr, err)
 			}
@@ -80,11 +82,13 @@ func TestNewOrder_RejectsInvalidInput(t *testing.T) {
 }
 
 func TestNewOrder_AcceptsValidOrder(t *testing.T) {
+	var testParticipantId int64 = 1
+
 	symbol, err := NewSymbol("ASELS", 10)
 	now := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
 
 	id := uuid.NewString()
-	order, err := NewOrder(id, symbol, SideBuy, 1050, 100, now)
+	order, err := NewOrder(id, testParticipantId, symbol, SideBuy, 1050, 100, now)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

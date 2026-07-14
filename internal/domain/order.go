@@ -25,6 +25,7 @@ const (
 
 type Order struct {
 	ID                string
+	ParticipantID     int64
 	Symbol            Symbol
 	Side              Side
 	Price             int64
@@ -51,7 +52,15 @@ var (
 	ErrEmptyOrderID = errors.New("order id cannot be empty")
 )
 
-func NewOrder(id string, symbol Symbol, side Side, price, quantity int64, createdAt time.Time) (Order, error) {
+func NewOrder(
+	id string, 
+	participantID int64,
+	symbol Symbol, 
+	side Side, 
+	price, 
+	quantity int64, 
+	createdAt time.Time,
+	) (Order, error) {
 	if strings.TrimSpace(id) == "" {
 		return Order{}, ErrEmptyOrderID
 	}
@@ -76,6 +85,7 @@ func NewOrder(id string, symbol Symbol, side Side, price, quantity int64, create
 
 	return Order{
 		ID:                id,
+		ParticipantID:     participantID,
 		Symbol:            symbol,
 		Side:              side,
 		Price:             price,

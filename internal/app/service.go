@@ -12,6 +12,7 @@ import (
 )
 
 type SubmitOrderRequest struct {
+	ParticipantId int64
 	Symbol   string
 	Side     domain.Side
 	Price    int64
@@ -36,6 +37,7 @@ func SubmitOrder(
 
 	order, err := domain.NewOrder(
 		uuid.NewString(),
+		req.ParticipantId,
 		symbol,
 		req.Side,
 		req.Price,

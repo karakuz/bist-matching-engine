@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-
+var testParticipantId int64 = 1
 
 func TestMemoryBook(t *testing.T) {
 	symbol, err := domain.NewSymbol("ASELS", 10);
@@ -19,10 +19,10 @@ func TestMemoryBook(t *testing.T) {
 	t.Run("same existing level can't be added to other side", func(t *testing.T) {
 		orderBook := NewBook(symbol, 300)
 
-		order1, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideBuy, 1050, 100, time.Now().UTC())
+		order1, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideBuy, 1050, 100, time.Now().UTC())
 		if err != nil { t.Fatalf("new order1 failed: %v", err) }
 
-		order2, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideSell, 1050, 100, time.Now().UTC())
+		order2, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideSell, 1050, 100, time.Now().UTC())
 		if err != nil { t.Fatalf("new order1 failed: %v", err)}
 	
 		addErr := orderBook.Add(order1, order2)
@@ -38,7 +38,7 @@ func TestMemoryBook(t *testing.T) {
 
 		orderBook := NewBook(symbol, 300)
 
-		order1, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideBuy, smallerPrice, 100, time.Now().UTC())
+		order1, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideBuy, smallerPrice, 100, time.Now().UTC())
 		if err != nil {
 			t.Fatalf("new order1 failed: %v", err)
 		}
@@ -46,7 +46,7 @@ func TestMemoryBook(t *testing.T) {
 			t.Fatalf("add order1 failed: %v", err)
 		}
 
-		order2, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideBuy, highestPrice, 100, time.Now().UTC())
+		order2, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideBuy, highestPrice, 100, time.Now().UTC())
 		if err != nil {
 			t.Fatalf("new order2 failed: %v", err)
 		}
@@ -69,7 +69,7 @@ func TestMemoryBook(t *testing.T) {
 
 		orderBook := NewBook(symbol, 300)
 
-		order1, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideSell, smallerPrice, 100, time.Now().UTC())
+		order1, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideSell, smallerPrice, 100, time.Now().UTC())
 		if err != nil {
 			t.Fatalf("new order1 failed: %v", err)
 		}
@@ -77,7 +77,7 @@ func TestMemoryBook(t *testing.T) {
 			t.Fatalf("add order1 failed: %v", err)
 		}
 
-		order2, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideSell, highestPrice, 100, time.Now().UTC())
+		order2, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideSell, highestPrice, 100, time.Now().UTC())
 		if err != nil {
 			t.Fatalf("new order2 failed: %v", err)
 		}
@@ -98,7 +98,7 @@ func TestMemoryBook(t *testing.T) {
 		const orderPrice int64 = 1000
 		orderBook := NewBook(symbol, 300)
 
-		order1, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideBuy, orderPrice, 100, time.Now().UTC())
+		order1, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideBuy, orderPrice, 100, time.Now().UTC())
 		if err != nil {
 			t.Fatalf("new order1 failed: %v", err)
 		}
@@ -106,7 +106,7 @@ func TestMemoryBook(t *testing.T) {
 			t.Fatalf("add order1 failed: %v", err)
 		}
 
-		order2, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideBuy, orderPrice, 100, time.Now().UTC())
+		order2, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideBuy, orderPrice, 100, time.Now().UTC())
 		if err != nil {
 			t.Fatalf("new order2 failed: %v", err)
 		}

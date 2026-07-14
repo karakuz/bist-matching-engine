@@ -11,7 +11,9 @@ $files = @(
   "002_create_trades.sql",
   "003_create_order_events.sql",
   "004_create_symbols.sql",
-  "005_insert_symbols.sql"
+  "005_insert_symbols.sql",
+  "006_market_sessions.sql",
+  "007_participants.sql"
 )
 
 foreach ($file in $files) {
