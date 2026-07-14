@@ -1,3 +1,45 @@
 package http
 
-// TODO: setup Echo routes and bind handlers
+import (
+	stdhttp "net/http"
+
+	"bist-matching-engine/internal/app"
+	"bist-matching-engine/internal/matching"
+	"bist-matching-engine/internal/storage"
+
+	"github.com/gin-gonic/gin"
+)
+
+func RegisterRoutes(
+	router *gin.Engine,
+	store *storage.PostgresStore,
+	engine *matching.Engine,
+) {
+	router.GET("/alivez", func(c *gin.Context) {
+		c.JSON(stdhttp.StatusOK, []gin.H{
+			{"Test": "123"},
+		})
+	})
+
+	router.POST("/orders", func(c *gin.Context) {
+		var req app.SubmitOrderRequest
+
+		err := c.ShouldBindJSON(&req)
+		if err != nil {
+			c.JSON(stdhttp.StatusBadRequest, gin.H{
+				"error": "invalid request body",
+			})
+			return
+		}
+
+		result, err := app.SubmitOrder(c.Request.Context(), store, engine, req)
+		if err != nil {
+			c.JSON(stdhttp.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(stdhttp.StatusCreated, result)
+	})
+}

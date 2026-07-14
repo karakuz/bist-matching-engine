@@ -1,11 +1,70 @@
-// internal/app/service.go
 package app
 
-// TODO: service flow:
-// 1) validate request
-// 2) create order
-// 3) persist accepted order
-// 4) call matching engine
-// 5) persist trades
-// 6) update statuses
-// 7) return result
+import (
+	"context"
+	"time"
+
+	"github.com/google/uuid"
+
+	"bist-matching-engine/internal/domain"
+	"bist-matching-engine/internal/matching"
+	"bist-matching-engine/internal/storage"
+)
+
+type SubmitOrderRequest struct {
+	Symbol   string
+	Side     domain.Side
+	Price    int64
+	Quantity int64
+}
+
+type SubmitOrderResult struct {
+	Order  domain.Order
+	Trades []domain.Trade
+}
+
+func SubmitOrder(
+	ctx context.Context,
+	store *storage.PostgresStore,
+	engine *matching.Engine,
+	req SubmitOrderRequest,
+) (SubmitOrderResult, error) {
+	symbol, err := store.GetSymbol(ctx, req.Symbol)
+	if err != nil {
+		return SubmitOrderResult{}, err
+	}
+
+	order, err := domain.NewOrder(
+		uuid.NewString(),
+		symbol,
+		req.Side,
+		req.Price,
+		req.Quantity,
+		time.Now().UTC(),
+	)
+	if err != nil {
+		return SubmitOrderResult{}, err
+	}
+
+	if err := store.InsertOrder(ctx, order); err != nil {
+		return SubmitOrderResult{}, err
+	}
+
+	updatedOrder, trades, err := engine.Submit(&order)
+	if err != nil {
+		return SubmitOrderResult{}, err
+	}
+
+	if err := store.UpdateOrder(ctx, *updatedOrder); err != nil {
+		return SubmitOrderResult{}, err
+	}
+
+	if err := store.InsertTrades(ctx, trades); err != nil {
+		return SubmitOrderResult{}, err
+	}
+
+	return SubmitOrderResult{
+		Order:  *updatedOrder,
+		Trades: trades,
+	}, nil
+}
