@@ -45,7 +45,7 @@ func getTestBook(t *testing.T) book.Book {
 	order3 := createOrder(t, symbol, domain.SideSell, 302, 100)
 	order4 := createOrder(t, symbol, domain.SideSell, 303, 100)
 
-	orderBook := book.NewBook(symbol)
+	orderBook := book.NewBook(symbol, 300)
 	orderBook.Add(order1)
 	orderBook.Add(order2)
 	orderBook.Add(order3)
@@ -56,6 +56,19 @@ func getTestBook(t *testing.T) book.Book {
 
 func TestEngineForBuyOrders(t *testing.T) {
 	symbol := createSymbol(t)
+
+	t.Run("price is within upper&lower limits", func(t *testing.T) {
+		orderBook := getTestBook(t)
+		engine := NewEngine(&orderBook)
+
+		//price can be >= 270 and <= 330, book is created with openingPrice 300
+
+		order := createOrder(t, symbol, domain.SideBuy, 269, 100)
+		_, _, err := engine.Submit(&order)
+		if err != ErrPriceOutsideAllowedRange {
+			t.Fatalf("expected ErrPriceOutsideAllowedRange error, got %v", err)
+		}
+	})
 
 	t.Run("price is less than best price", func(t *testing.T) {
 		orderBook := getTestBook(t)
@@ -88,7 +101,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 	})
 
 	t.Run("best sell does not exists", func(t *testing.T) {
-		orderBook := book.NewBook(symbol)
+		orderBook := book.NewBook(symbol, 300)
 		engine := NewEngine(orderBook)
 
 		order := createOrder(t, symbol, domain.SideBuy, 300, 100)
@@ -535,7 +548,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				orderBook := book.NewBook(symbol)
+				orderBook := book.NewBook(symbol, 300)
 
 				t1 := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
 				t2 := time.Date(2026, 5, 2, 10, 0, 0, 1, time.UTC)
@@ -632,7 +645,7 @@ func TestEngineForSellOrders(t *testing.T) {
 	})
 
 	t.Run("best buy does not exists", func(t *testing.T) {
-		orderBook := book.NewBook(symbol)
+		orderBook := book.NewBook(symbol, 300)
 		engine := NewEngine(orderBook)
 
 		order := createOrder(t, symbol, domain.SideSell, 300, 100)
@@ -1060,7 +1073,7 @@ func TestEngineForSellOrders(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				orderBook := book.NewBook(symbol)
+				orderBook := book.NewBook(symbol, 300)
 
 				t1 := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
 				t2 := time.Date(2026, 5, 2, 10, 0, 0, 1, time.UTC)

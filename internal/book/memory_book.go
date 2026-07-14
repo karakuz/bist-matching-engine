@@ -19,6 +19,10 @@ type Book struct {
 	Symbol Symbol
 
 	lastTradePrice int64
+	openingPrice int64
+
+	upperPriceLimit int64
+	lowerPriceLimit int64
 	
 	// maps: lookup by price is fast but but best bid/ask discovery is slow (O(n) scan)
 	buys  map[int64][]Order
@@ -200,10 +204,31 @@ func (book *Book) ReduceBestSell(quantity int64) {
 	book.sells[bestSellOrder.Price] = level
 }
 
-func NewBook(symbol Symbol) *Book {
+func calculatePriceLimits(openingPrice, tickSize int64) (upper, lower int64) {
+	const percentageBase int64 = 100
+	const priceLimitPercentage int64 = 10
+
+	tickDenominator := percentageBase * tickSize
+
+	upperNumerator := openingPrice * (percentageBase + priceLimitPercentage)
+	lowerNumerator := openingPrice * (percentageBase - priceLimitPercentage)
+
+	upper = (upperNumerator / tickDenominator) * tickSize
+
+	lower = ((lowerNumerator + tickDenominator - 1) / tickDenominator) * tickSize
+
+	return upper, lower
+}
+
+func NewBook(symbol Symbol, openingPrice int64) *Book {
+	upperPriceLimit, lowerPriceLimit := calculatePriceLimits(openingPrice, symbol.TickSize)
+
 	return &Book{
 		Symbol: symbol,
-		lastTradePrice: 0,
+		lastTradePrice: openingPrice,
+		openingPrice: openingPrice,
+		upperPriceLimit: upperPriceLimit,
+		lowerPriceLimit: lowerPriceLimit,
 		buys:  make(map[int64][]Order),
 		sells: make(map[int64][]Order),
 	}
@@ -223,4 +248,12 @@ func (book *Book) GetLastTradePrice() int64{
 
 func (book *Book) UpdateLastTradePrice(price int64){
 	book.lastTradePrice = price
+}
+
+func (book *Book) GetUpperPriceLimit() int64{
+	return book.upperPriceLimit
+}
+
+func (book *Book) GetLowerPriceLimit() int64{
+	return book.lowerPriceLimit
 }

@@ -13,6 +13,7 @@ import (
 
 var (
 	ErrUnhandledCase = errors.New("Unhandled case error")
+	ErrPriceOutsideAllowedRange = errors.New("order price must be within the lower and upper price limits")
 )
 
 type Engine struct {
@@ -185,6 +186,15 @@ func submitAsk(engine *Engine, order *domain.Order) (*domain.Order, []domain.Tra
 }
 
 func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade, error) {
+	upperPriceLimit := engine.book.GetUpperPriceLimit()
+	lowerPriceLimit := engine.book.GetLowerPriceLimit()
+	
+	isValidPrice := upperPriceLimit >= order.Price && lowerPriceLimit <= order.Price
+	if(!isValidPrice){
+		return order, make([]domain.Trade, 0), ErrPriceOutsideAllowedRange
+	}
+
+	
 	if order.Side == domain.SideBuy {
 		return submitBid(engine, order)
 	} else if order.Side == domain.SideSell {

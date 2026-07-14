@@ -44,7 +44,7 @@ func getTestBook(t *testing.T) book.Book {
 	order3 := createOrder(t, symbol, domain.SideSell, 302, 100)
 	order4 := createOrder(t, symbol, domain.SideSell, 303, 100)
 
-	orderBook := book.NewBook(symbol)
+	orderBook := book.NewBook(symbol, 300)
 	orderBook.Add(order1)
 	orderBook.Add(order2)
 	orderBook.Add(order3)

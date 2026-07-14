@@ -17,7 +17,7 @@ func TestMemoryBook(t *testing.T) {
 	}
 
 	t.Run("same existing level can't be added to other side", func(t *testing.T) {
-		orderBook := NewBook(symbol)
+		orderBook := NewBook(symbol, 300)
 
 		order1, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideBuy, 1050, 100, time.Now().UTC())
 		if err != nil { t.Fatalf("new order1 failed: %v", err) }
@@ -36,7 +36,7 @@ func TestMemoryBook(t *testing.T) {
 		var smallerPrice int64 = 1050
 		var highestPrice int64 = 1100
 
-		orderBook := NewBook(symbol)
+		orderBook := NewBook(symbol, 300)
 
 		order1, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideBuy, smallerPrice, 100, time.Now().UTC())
 		if err != nil {
@@ -67,7 +67,7 @@ func TestMemoryBook(t *testing.T) {
 		var smallerPrice int64 = 1050
 		var highestPrice int64 = 1100
 
-		orderBook := NewBook(symbol)
+		orderBook := NewBook(symbol, 300)
 
 		order1, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideSell, smallerPrice, 100, time.Now().UTC())
 		if err != nil {
@@ -96,7 +96,7 @@ func TestMemoryBook(t *testing.T) {
 
 	t.Run("same price preserves FIFO", func(t *testing.T) {
 		const orderPrice int64 = 1000
-		orderBook := NewBook(symbol)
+		orderBook := NewBook(symbol, 300)
 
 		order1, err := domain.NewOrder(uuid.NewString(), symbol, domain.SideBuy, orderPrice, 100, time.Now().UTC())
 		if err != nil {
@@ -132,7 +132,7 @@ func TestMemoryBook(t *testing.T) {
 	})
 
 	t.Run("empty book returns no order", func(t *testing.T) {
-		orderBook := NewBook(symbol)
+		orderBook := NewBook(symbol, 300)
 		if len(orderBook.buys) != 0 || len(orderBook.sells) != 0 {
 			t.Fatalf("Empty order book has orders, expected no order")
 		}
