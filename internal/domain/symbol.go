@@ -6,18 +6,18 @@ import (
 )
 
 var (
-	ErrEmptySymbol    = errors.New("symbol cannot be empty")
-	ErrInvalidSymbol  = errors.New("symbol code must be 5 characters")
-	ErrInvalidTickSize    = errors.New("symbol cannot be empty")
+	ErrEmptySymbol     = errors.New("symbol cannot be empty")
+	ErrInvalidSymbol   = errors.New("symbol code can be max 5 characters")
+	ErrInvalidTickSize = errors.New("symbol cannot be empty")
 )
 
-type Symbol struct{
-	Code string
+type Symbol struct {
+	Code     string
 	TickSize int64
 }
 
 func (symbol *Symbol) ValidateTickOfPrice(price int64) error {
-	if price % symbol.TickSize != 0 {
+	if price%symbol.TickSize != 0 {
 		return ErrInvalidTickSize
 	}
 	return nil
@@ -25,21 +25,21 @@ func (symbol *Symbol) ValidateTickOfPrice(price int64) error {
 
 func NewSymbol(code string, tickSize int64) (Symbol, error) {
 	code = strings.ToUpper(strings.TrimSpace(code))
-	
+
 	if code == "" {
 		return Symbol{}, ErrEmptySymbol
 	}
 
-	if len(code) != 5 {
+	if len(code) > 5 {
 		return Symbol{}, ErrInvalidSymbol
 	}
 
 	if tickSize < 1 {
 		return Symbol{}, ErrInvalidTickSize
 	}
-	
+
 	return Symbol{
-		Code: strings.ToUpper(code),
+		Code:     strings.ToUpper(code),
 		TickSize: tickSize,
 	}, nil
 }

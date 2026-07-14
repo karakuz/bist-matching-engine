@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	ErrUnhandledCase = errors.New("Unhandled case error")
-	ErrPriceOutsideAllowedRange = errors.New("order price must be within the lower and upper price limits")
+	ErrUnhandledCase                           = errors.New("Unhandled case error")
+	ErrOrderSymbolDoesNotMatchWithEngineSymbol = errors.New("Order symbol does not match with engine symbol")
+	ErrPriceOutsideAllowedRange                = errors.New("order price must be within the lower and upper price limits")
 )
 
 type Engine struct {
@@ -29,7 +30,7 @@ func newTrade(engine *Engine, order *domain.Order, restingOrder domain.Order, qu
 
 	var BuyOrderID string
 	var SellOrderID string
-	if order.Side == domain.SideBuy{
+	if order.Side == domain.SideBuy {
 		BuyOrderID = order.ID
 		SellOrderID = restingOrder.ID
 	} else {
@@ -186,15 +187,17 @@ func submitAsk(engine *Engine, order *domain.Order) (*domain.Order, []domain.Tra
 }
 
 func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade, error) {
+	if order.Symbol.Code != engine.book.Symbol.Code {
+		return order, make([]domain.Trade, 0), ErrOrderSymbolDoesNotMatchWithEngineSymbol
+	}
 	upperPriceLimit := engine.book.GetUpperPriceLimit()
 	lowerPriceLimit := engine.book.GetLowerPriceLimit()
-	
+
 	isValidPrice := upperPriceLimit >= order.Price && lowerPriceLimit <= order.Price
-	if(!isValidPrice){
+	if !isValidPrice {
 		return order, make([]domain.Trade, 0), ErrPriceOutsideAllowedRange
 	}
 
-	
 	if order.Side == domain.SideBuy {
 		return submitBid(engine, order)
 	} else if order.Side == domain.SideSell {

@@ -13,7 +13,8 @@ $files = @(
   "004_create_symbols.sql",
   "005_insert_symbols.sql",
   "006_market_sessions.sql",
-  "007_participants.sql"
+  "007_participants.sql",
+  "008_add_participant_id_to_orders.sql"
 )
 
 foreach ($file in $files) {

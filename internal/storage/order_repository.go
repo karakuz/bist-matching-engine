@@ -17,9 +17,10 @@ func (store *PostgresStore) InsertOrder(ctx context.Context, order domain.Order)
 			remaining_quantity,
 			status,
 			created_at,
-			updated_at
+			updated_at,
+			participant_id
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
 	`
 
 	_, err := store.pool.Exec(
@@ -33,6 +34,7 @@ func (store *PostgresStore) InsertOrder(ctx context.Context, order domain.Order)
 		order.RemainingQuantity,
 		order.Status,
 		order.CreatedAt,
+		order.ParticipantID,
 	)
 
 	return err
@@ -68,7 +70,8 @@ func (store *PostgresStore) GetOrderByID(ctx context.Context, id string, symbol 
 			quantity,
 			remaining_quantity,
 			status,
-			created_at
+			created_at,
+			participant_id
 		FROM orders
 		WHERE id = $1
 	`
@@ -83,6 +86,7 @@ func (store *PostgresStore) GetOrderByID(ctx context.Context, id string, symbol 
 		&order.RemainingQuantity,
 		&order.Status,
 		&order.CreatedAt,
+		&order.ParticipantID,
 	)
 	if err != nil {
 		return domain.Order{}, err

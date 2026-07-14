@@ -65,6 +65,10 @@ func NewOrder(
 		return Order{}, ErrEmptyOrderID
 	}
 
+	if participantID <= 0 {
+		return Order{}, ErrInvalidParticipantID
+	}
+
 	err := symbol.ValidateTickOfPrice(price)
 	if err != nil {
 		return Order{}, err

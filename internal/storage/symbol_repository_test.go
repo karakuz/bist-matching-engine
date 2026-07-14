@@ -8,7 +8,7 @@ import (
 func TestPostgresStore_InsertAndGetSymbol(t *testing.T) {
 	store, ctx := newTestStore(t)
 
-	symbol, err := domain.NewSymbol("ASELS", 1)
+	symbol, err := domain.NewSymbol("TERA", 1)
 	if err != nil {
 		t.Fatalf("NewSymbol failed: %v", err)
 	}
@@ -29,5 +29,4 @@ func TestPostgresStore_InsertAndGetSymbol(t *testing.T) {
 		t.Fatalf("Expected returned code to be same with symbol code; expected: %s, got: %s", symbol.Code, got.Code)
 	}
 
-	
 }
