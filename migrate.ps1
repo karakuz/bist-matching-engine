@@ -10,7 +10,8 @@ $files = @(
   "001_create_orders.sql",
   "002_create_trades.sql",
   "003_create_order_events.sql",
-  "004_create_symbols.sql"
+  "004_create_symbols.sql",
+  "005_insert_symbols.sql"
 )
 
 foreach ($file in $files) {
