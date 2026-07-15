@@ -206,3 +206,7 @@ func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade
 
 	return order, make([]domain.Trade, 0), ErrUnhandledCase
 }
+
+func (engine *Engine) SessionDate() time.Time{
+	return engine.book.SessionDate
+}

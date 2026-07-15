@@ -39,6 +39,7 @@ func SubmitOrder(
 		uuid.NewString(),
 		req.ParticipantId,
 		symbol,
+		engine.SessionDate(),
 		req.Side,
 		req.Price,
 		req.Quantity,

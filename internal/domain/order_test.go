@@ -73,7 +73,15 @@ func TestNewOrder_RejectsInvalidInput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewOrder(tt.id, testParticipantId, tt.symbol, tt.side, tt.price, tt.quantity, time.Now().UTC())
+			_, err := NewOrder(
+				tt.id, 
+				testParticipantId, 
+				tt.symbol, 
+				time.Now().UTC(),
+				tt.side, 
+				tt.price, 
+				tt.quantity, 
+				time.Now().UTC())
 			if err != tt.wantErr {
 				t.Fatalf("expected error %v, got %v", tt.wantErr, err)
 			}
@@ -88,7 +96,15 @@ func TestNewOrder_AcceptsValidOrder(t *testing.T) {
 	now := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
 
 	id := uuid.NewString()
-	order, err := NewOrder(id, testParticipantId, symbol, SideBuy, 1050, 100, now)
+	order, err := NewOrder(
+		id, 
+		testParticipantId, 
+		symbol, 
+		now,
+		SideBuy, 
+		1050, 
+		100, 
+		now)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

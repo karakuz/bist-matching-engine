@@ -28,7 +28,15 @@ func createOrder(t *testing.T, symbol domain.Symbol, side domain.Side, price int
 
 	now := time.Now().UTC()
 
-	order, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, side, price, qty, now)
+	order, err := domain.NewOrder(
+		uuid.NewString(), 
+		testParticipantId, 
+		symbol, 
+		now,
+		side, 
+		price, 
+		qty, 
+		now)
 	if err != nil {
 		t.Fatalf("createOrder failed: %v", err)
 	}
@@ -46,7 +54,7 @@ func getTestBook(t *testing.T) book.Book {
 	order3 := createOrder(t, symbol, domain.SideSell, 302, 100)
 	order4 := createOrder(t, symbol, domain.SideSell, 303, 100)
 
-	orderBook := book.NewBook(symbol, 300)
+	orderBook := book.NewBook(symbol, time.Now().UTC(), 300)
 	orderBook.Add(order1)
 	orderBook.Add(order2)
 	orderBook.Add(order3)

@@ -1,13 +1,15 @@
 package storage
 
-import(
+import (
 	"bist-matching-engine/internal/domain"
 	"context"
+	"time"
 )
 
 type BookInitialization struct {
-    Symbol       domain.Symbol
-    OpeningPrice int64
+	Symbol       domain.Symbol
+	SessionDate  time.Time
+	OpeningPrice int64
 }
 
 func (store *PostgresStore) GetBookInitializations(ctx context.Context) ([]BookInitialization, error) {
@@ -15,6 +17,7 @@ func (store *PostgresStore) GetBookInitializations(ctx context.Context) ([]BookI
         SELECT
             symbols.code,
             symbols.tick_size,
+            market_sessions.session_date,
             market_sessions.opening_price
         FROM symbols
         JOIN market_sessions
@@ -26,33 +29,33 @@ func (store *PostgresStore) GetBookInitializations(ctx context.Context) ([]BookI
         ORDER BY symbols.code
     `
 
-    rows, err := store.pool.Query(ctx, query)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	rows, err := store.pool.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-    bookInitializations := make([]BookInitialization, 0)
+	bookInitializations := make([]BookInitialization, 0)
 
-    for rows.Next() {
-        var initialization BookInitialization
+	for rows.Next() {
+		var initialization BookInitialization
 
-        err := rows.Scan(
-            &initialization.Symbol.Code,
-            &initialization.Symbol.TickSize,
-            &initialization.OpeningPrice,
-        )
-        if err != nil {
-            return nil, err
-        }
+		err := rows.Scan(
+			&initialization.Symbol.Code,     //symbols.code
+			&initialization.Symbol.TickSize, //symbols.tick_size
+			&initialization.SessionDate,     //market_sessions.session_date
+			&initialization.OpeningPrice,    //market_sessions.opening_price
+		)
+		if err != nil {
+			return nil, err
+		}
 
-        bookInitializations = append(bookInitializations,initialization)
-    }
+		bookInitializations = append(bookInitializations, initialization)
+	}
 
-    if err := rows.Err(); err != nil {
-        return nil, err
-    }
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
-    return bookInitializations, nil
+	return bookInitializations, nil
 }
-

@@ -30,7 +30,15 @@ func createOrder(t *testing.T, symbol Symbol, side domain.Side, price int64, qty
 	now := time.Now().UTC()
 
 
-	order, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, side, price, qty, now)
+	order, err := domain.NewOrder(
+		uuid.NewString(), 
+		testParticipantId, 
+		symbol, 
+		time.Now().UTC(),
+		side, 
+		price, 
+		qty, 
+		now)
 	if err != nil {
 		t.Fatalf("createOrder failed: %v", err)
 	}
@@ -48,7 +56,7 @@ func getTestBook(t *testing.T) book.Book {
 	order3 := createOrder(t, symbol, domain.SideSell, 302, 100)
 	order4 := createOrder(t, symbol, domain.SideSell, 303, 100)
 
-	orderBook := book.NewBook(symbol, 300)
+	orderBook := book.NewBook(symbol, time.Now().UTC(), 300)
 	orderBook.Add(order1)
 	orderBook.Add(order2)
 	orderBook.Add(order3)
@@ -104,7 +112,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 	})
 
 	t.Run("best sell does not exists", func(t *testing.T) {
-		orderBook := book.NewBook(symbol, 300)
+		orderBook := book.NewBook(symbol, time.Now().UTC(), 300)
 		engine := NewEngine(orderBook)
 
 		order := createOrder(t, symbol, domain.SideBuy, 300, 100)
@@ -551,23 +559,47 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				orderBook := book.NewBook(symbol, 300)
+				orderBook := book.NewBook(symbol, time.Now().UTC(), 300)
 
 				t1 := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
 				t2 := time.Date(2026, 5, 2, 10, 0, 0, 1, time.UTC)
 				t3 := time.Date(2026, 5, 2, 10, 0, 0, 2, time.UTC)
 
-				t1SellOrder, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideSell, 300, 10, t1)
+				t1SellOrder, err := domain.NewOrder(
+					uuid.NewString(), 
+					testParticipantId, 
+					symbol, 
+					t1,
+					domain.SideSell, 
+					300, 
+					10, 
+					t1)
 				if err != nil {
 					t.Fatalf("domain.NewOrder failed: %v", err)
 				}
 
-				t2SellOrder, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideSell, 300, 10, t2)
+				t2SellOrder, err := domain.NewOrder(
+					uuid.NewString(),
+					testParticipantId,
+					symbol,
+					t2,
+					domain.SideSell,
+					300,
+					10,
+					t2)
 				if err != nil {
 					t.Fatalf("domain.NewOrder failed: %v", err)
 				}
 
-				t3BuyOrder, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideBuy, 300, tt.buyQty, t3)
+				t3BuyOrder, err := domain.NewOrder(
+					uuid.NewString(), 
+					testParticipantId, 
+					symbol, 
+					t3,
+					domain.SideBuy, 
+					300, 
+					tt.buyQty, 
+					t3)
 				if err != nil {
 					t.Fatalf("domain.NewOrder failed: %v", err)
 				}
@@ -648,7 +680,7 @@ func TestEngineForSellOrders(t *testing.T) {
 	})
 
 	t.Run("best buy does not exists", func(t *testing.T) {
-		orderBook := book.NewBook(symbol, 300)
+		orderBook := book.NewBook(symbol, time.Now().UTC(), 300)
 		engine := NewEngine(orderBook)
 
 		order := createOrder(t, symbol, domain.SideSell, 300, 100)
@@ -1076,23 +1108,47 @@ func TestEngineForSellOrders(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				orderBook := book.NewBook(symbol, 300)
+				orderBook := book.NewBook(symbol, time.Now().UTC(), 300)
 
 				t1 := time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)
 				t2 := time.Date(2026, 5, 2, 10, 0, 0, 1, time.UTC)
 				t3 := time.Date(2026, 5, 2, 10, 0, 0, 2, time.UTC)
 
-				t1BuyOrder, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideBuy, 300, 10, t1)
+				t1BuyOrder, err := domain.NewOrder(
+					uuid.NewString(), 
+					testParticipantId, 
+					symbol, 
+					t1,
+					domain.SideBuy, 
+					300, 
+					10, 
+					t1)
 				if err != nil {
 					t.Fatalf("domain.NewOrder failed: %v", err)
 				}
 
-				t2BuyOrder, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideBuy, 300, 10, t2)
+				t2BuyOrder, err := domain.NewOrder(
+					uuid.NewString(), 
+					testParticipantId, 
+					symbol, 
+					t2,
+					domain.SideBuy, 
+					300, 
+					10, 
+					t2)
 				if err != nil {
 					t.Fatalf("domain.NewOrder failed: %v", err)
 				}
 
-				t3SellOrder, err := domain.NewOrder(uuid.NewString(), testParticipantId, symbol, domain.SideSell, 300, tt.sellQty, t3)
+				t3SellOrder, err := domain.NewOrder(
+					uuid.NewString(), 
+					testParticipantId, 
+					symbol, 
+					t3,
+					domain.SideSell, 
+					300, 
+					tt.sellQty, 
+					t3)
 				if err != nil {
 					t.Fatalf("domain.NewOrder failed: %v", err)
 				}

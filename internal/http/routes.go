@@ -3,6 +3,7 @@ package http
 import (
 	stdhttp "net/http"
 
+	"bist-matching-engine/internal/matching"
 	"bist-matching-engine/internal/storage"
 
 	"github.com/gin-gonic/gin"
@@ -11,6 +12,7 @@ import (
 func RegisterRoutes(
 	router *gin.Engine,
 	store *storage.PostgresStore,
+	engine map[string]*matching.Engine,
 ) {
 	router.GET("/alivez", func(c *gin.Context) {
 		c.JSON(stdhttp.StatusOK, []gin.H{

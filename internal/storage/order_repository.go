@@ -10,31 +10,32 @@ func (store *PostgresStore) InsertOrder(ctx context.Context, order domain.Order)
 	const query = `
 		INSERT INTO orders (
 			id,
+			participant_id,
 			symbol,
+			session_date,
 			side,
 			price,
 			quantity,
 			remaining_quantity,
 			status,
-			created_at,
-			updated_at,
-			participant_id
+			created_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 
 	_, err := store.pool.Exec(
 		ctx,
 		query,
-		order.ID,
-		order.Symbol.Code,
-		order.Side,
-		order.Price,
-		order.Quantity,
-		order.RemainingQuantity,
-		order.Status,
-		order.CreatedAt,
-		order.ParticipantID,
+		order.ID,                //$1  id
+		order.ParticipantID,     //$2  participant_id
+		order.Symbol.Code,       //$3  symbol
+		order.SessionDate,       //$4  session_date
+		order.Side,              //$5  side
+		order.Price,             //$6  price
+		order.Quantity,          //$7  quantity
+		order.RemainingQuantity, //$8  remaining_quantity
+		order.Status,            //$9  status
+		order.CreatedAt,         //$10 created_at
 	)
 
 	return err
@@ -65,13 +66,15 @@ func (store *PostgresStore) GetOrderByID(ctx context.Context, id string, symbol 
 	const query = `
 		SELECT
 			id,
+			participant_id,
+			symbol,
+			session_date,
 			side,
 			price,
 			quantity,
 			remaining_quantity,
 			status,
-			created_at,
-			participant_id
+			created_at
 		FROM orders
 		WHERE id = $1
 	`
@@ -80,13 +83,15 @@ func (store *PostgresStore) GetOrderByID(ctx context.Context, id string, symbol 
 
 	err := store.pool.QueryRow(ctx, query, id).Scan(
 		&order.ID,
+		&order.ParticipantID,
+		&order.Symbol.Code,
+		&order.SessionDate,
 		&order.Side,
 		&order.Price,
 		&order.Quantity,
 		&order.RemainingQuantity,
 		&order.Status,
 		&order.CreatedAt,
-		&order.ParticipantID,
 	)
 	if err != nil {
 		return domain.Order{}, err

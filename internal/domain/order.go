@@ -27,6 +27,7 @@ type Order struct {
 	ID                string
 	ParticipantID     int64
 	Symbol            Symbol
+	SessionDate		  time.Time
 	Side              Side
 	Price             int64
 	Quantity          int64
@@ -53,14 +54,15 @@ var (
 )
 
 func NewOrder(
-	id string, 
+	id string,
 	participantID int64,
-	symbol Symbol, 
-	side Side, 
-	price, 
-	quantity int64, 
+	symbol Symbol,
+	sessionDate time.Time,
+	side Side,
+	price,
+	quantity int64,
 	createdAt time.Time,
-	) (Order, error) {
+) (Order, error) {
 	if strings.TrimSpace(id) == "" {
 		return Order{}, ErrEmptyOrderID
 	}
@@ -91,6 +93,7 @@ func NewOrder(
 		ID:                id,
 		ParticipantID:     participantID,
 		Symbol:            symbol,
+		SessionDate:       sessionDate,
 		Side:              side,
 		Price:             price,
 		Quantity:          quantity,

@@ -1,69 +1,73 @@
 package book
 
 import (
-	"errors"
 	"bist-matching-engine/internal/domain"
+	"errors"
+	"time"
 )
 
 type Order = domain.Order
 type Symbol = domain.Symbol
 
 var (
-	ErrInvalidAddSideConflict   = errors.New("Book has different side than current one on this level")
-	ErrInvalidOrderSymbol    	= errors.New("Order symbol does not match with Book's symbol")
+	ErrInvalidAddSideConflict = errors.New("Book has different side than current one on this level")
+	ErrInvalidOrderSymbol     = errors.New("Order symbol does not match with Book's symbol")
 )
 
-// TODO: update bestBid and bestAsk on update/cancel order operations
-
 type Book struct {
-	Symbol Symbol
+	Symbol      Symbol
+	SessionDate time.Time
 
 	lastTradePrice int64
-	openingPrice int64
+	openingPrice   int64
 
 	upperPriceLimit int64
 	lowerPriceLimit int64
-	
+
 	// maps: lookup by price is fast but but best bid/ask discovery is slow (O(n) scan)
 	buys  map[int64][]Order
 	sells map[int64][]Order
 
 	// hence keeping bestBid and bestAsk prices as attributes
-	bestBid int64//buy
-	bestAsk int64//sell
+	bestBid int64 //buy
+	bestAsk int64 //sell
 }
 
 func (book *Book) Add(orders ...Order) error {
-	for _, order := range orders{
+	for _, order := range orders {
 		var sideLevels map[int64][]Order
 
-		if order.Symbol.Code != book.Symbol.Code{
+		if order.Symbol.Code != book.Symbol.Code {
 			return ErrInvalidOrderSymbol
 		}
 
-		if order.Side == domain.SideBuy {
+		switch order.Side {
+		case domain.SideBuy:
 			//check if other side has same level
-			if len(book.sells[order.Price]) > 0 { return ErrInvalidAddSideConflict }
+			if len(book.sells[order.Price]) > 0 {
+				return ErrInvalidAddSideConflict
+			}
 
 			sideLevels = book.buys
 			if book.bestBid == 0 || order.Price > book.bestBid {
 				book.bestBid = order.Price
 			}
-		} else if order.Side == domain.SideSell {
+		case domain.SideSell:
 			//check if other side has same level
-			if len(book.buys[order.Price]) > 0 { return ErrInvalidAddSideConflict}
+			if len(book.buys[order.Price]) > 0 {
+				return ErrInvalidAddSideConflict
+			}
 
 			sideLevels = book.sells
 			if book.bestAsk == 0 || order.Price < book.bestAsk {
 				book.bestAsk = order.Price
 			}
-		} else {
+		default:
 			return domain.ErrInvalidSide
 		}
 
 		sideLevels[order.Price] = append(sideLevels[order.Price], order)
 	}
-	
 
 	return nil
 }
@@ -220,21 +224,21 @@ func calculatePriceLimits(openingPrice, tickSize int64) (upper, lower int64) {
 	return upper, lower
 }
 
-func NewBook(symbol Symbol, openingPrice int64) *Book {
+func NewBook(symbol Symbol, sessionDate time.Time, openingPrice int64) *Book {
 	upperPriceLimit, lowerPriceLimit := calculatePriceLimits(openingPrice, symbol.TickSize)
 
 	return &Book{
-		Symbol: symbol,
-		lastTradePrice: openingPrice,
-		openingPrice: openingPrice,
+		Symbol:          symbol,
+		lastTradePrice:  openingPrice,
+		openingPrice:    openingPrice,
 		upperPriceLimit: upperPriceLimit,
 		lowerPriceLimit: lowerPriceLimit,
-		buys:  make(map[int64][]Order),
-		sells: make(map[int64][]Order),
+		buys:            make(map[int64][]Order),
+		sells:           make(map[int64][]Order),
 	}
 }
 
-func (book *Book) GetLevel(side domain.Side, price int64) []Order{
+func (book *Book) GetLevel(side domain.Side, price int64) []Order {
 	if side == domain.SideBuy {
 		return book.buys[price]
 	}
@@ -242,18 +246,18 @@ func (book *Book) GetLevel(side domain.Side, price int64) []Order{
 	return book.sells[price]
 }
 
-func (book *Book) GetLastTradePrice() int64{
+func (book *Book) GetLastTradePrice() int64 {
 	return book.lastTradePrice
 }
 
-func (book *Book) UpdateLastTradePrice(price int64){
+func (book *Book) UpdateLastTradePrice(price int64) {
 	book.lastTradePrice = price
 }
 
-func (book *Book) GetUpperPriceLimit() int64{
+func (book *Book) GetUpperPriceLimit() int64 {
 	return book.upperPriceLimit
 }
 
-func (book *Book) GetLowerPriceLimit() int64{
+func (book *Book) GetLowerPriceLimit() int64 {
 	return book.lowerPriceLimit
 }

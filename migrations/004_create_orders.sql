@@ -6,6 +6,11 @@ CREATE TABLE IF NOT EXISTS orders (
     symbol TEXT NOT NULL
         REFERENCES symbols(code)
         ON DELETE RESTRICT,
+    session_date DATE NOT NULL,
+    CONSTRAINT orders_market_session_fk
+        FOREIGN KEY (symbol, session_date)
+        REFERENCES market_sessions(symbol_code, session_date)
+        ON DELETE RESTRICT,
     side TEXT NOT NULL CHECK (side IN ('BUY', 'SELL')),
     price BIGINT NOT NULL CHECK (price > 0),
     quantity BIGINT NOT NULL CHECK (quantity > 0),
