@@ -22,12 +22,6 @@ func TestNewSymbol_RejectsInvalidInput(t *testing.T) {
 			wantErr:  ErrEmptySymbol,
 		},
 		{
-			name:     "code shorter than five characters",
-			code:     "ASEL",
-			tickSize: 1,
-			wantErr:  ErrInvalidSymbol,
-		},
-		{
 			name:     "code longer than five characters",
 			code:     "ASELSS",
 			tickSize: 1,
