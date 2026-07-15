@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +12,80 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestPostgresStore_GetSeededRestingOrdersForSession(t *testing.T) {
+	store, ctx := newTestStore(t)
+
+	initializations, err := store.GetBookInitializations(ctx)
+	if err != nil {
+		t.Fatalf("GetBookInitializations failed: %v", err)
+	}
+
+	var aselsInitialization BookInitialization
+	for _, initialization := range initializations {
+		if initialization.Symbol.Code == "ASELS" {
+			aselsInitialization = initialization
+			break
+		}
+	}
+	if aselsInitialization.Symbol.Code == "" {
+		t.Fatal("ASELS book initialization not found")
+	}
+
+	orders, err := store.GetRestingOrdersForSession(
+		ctx,
+		aselsInitialization.Symbol,
+		aselsInitialization.SessionDate,
+	)
+	if err != nil {
+		t.Fatalf("GetRestingOrdersForSession failed: %v", err)
+	}
+
+	seedPrefix := "seed-asels-" + aselsInitialization.SessionDate.Format("20060102")
+	seedOrderCount := 0
+	bestBid := int64(0)
+	bestAsk := int64(0)
+	type priceLevel struct {
+		side  domain.Side
+		price int64
+	}
+	ordersBySideAndPrice := make(map[priceLevel]int)
+
+	for _, order := range orders {
+		if !strings.HasPrefix(order.ID, seedPrefix) {
+			continue
+		}
+
+		seedOrderCount++
+		levelKey := priceLevel{side: order.Side, price: order.Price}
+		ordersBySideAndPrice[levelKey]++
+
+		if order.Side == domain.SideBuy && order.Price > bestBid {
+			bestBid = order.Price
+		}
+		if order.Side == domain.SideSell && (bestAsk == 0 || order.Price < bestAsk) {
+			bestAsk = order.Price
+		}
+	}
+
+	if seedOrderCount != 52 {
+		t.Fatalf("expected 52 seeded ASELS orders, got %d", seedOrderCount)
+	}
+	if bestBid >= bestAsk {
+		t.Fatalf("seeded orders cross: best bid %d, best ask %d", bestBid, bestAsk)
+	}
+
+	hasMultipleOrdersAtLevel := false
+	for _, count := range ordersBySideAndPrice {
+		if count > 1 {
+			hasMultipleOrdersAtLevel = true
+			break
+		}
+	}
+	if !hasMultipleOrdersAtLevel {
+		t.Fatal("expected multiple seeded orders at the same price level")
+	}
+}
 
 func newTestStore(t *testing.T) (*PostgresStore, context.Context) {
 	t.Helper()
@@ -42,7 +117,7 @@ func TestPostgresStore_InsertAndGetOrderByID(t *testing.T) {
 		t.Fatalf("NewSymbol failed: %v", err)
 	}
 
-	var testParticipantId int64 = 1 
+	var testParticipantId int64 = 1
 
 	order, err := domain.NewOrder(
 		uuid.NewString(),
@@ -101,8 +176,8 @@ func TestPostgresStore_UpdateOrder(t *testing.T) {
 		t.Fatalf("NewSymbol failed: %v", err)
 	}
 
-	var testParticipantId int64 = 1 
-	
+	var testParticipantId int64 = 1
+
 	order, err := domain.NewOrder(
 		uuid.NewString(),
 		testParticipantId,

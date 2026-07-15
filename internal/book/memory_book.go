@@ -229,6 +229,7 @@ func NewBook(symbol Symbol, sessionDate time.Time, openingPrice int64) *Book {
 
 	return &Book{
 		Symbol:          symbol,
+		SessionDate:     sessionDate,
 		lastTradePrice:  openingPrice,
 		openingPrice:    openingPrice,
 		upperPriceLimit: upperPriceLimit,

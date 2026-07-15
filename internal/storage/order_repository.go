@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"time"
 
 	"bist-matching-engine/internal/domain"
 )
@@ -39,6 +40,62 @@ func (store *PostgresStore) InsertOrder(ctx context.Context, order domain.Order)
 	)
 
 	return err
+}
+
+func (store *PostgresStore) GetRestingOrdersForSession(
+	ctx context.Context,
+	symbol domain.Symbol,
+	sessionDate time.Time,
+) ([]domain.Order, error) {
+	const query = `
+		SELECT
+			id,
+			participant_id,
+			side,
+			price,
+			quantity,
+			remaining_quantity,
+			status,
+			created_at
+		FROM orders
+		WHERE symbol = $1
+			AND session_date = $2
+			AND status IN ('OPEN', 'PARTIALLY_FILLED')
+		ORDER BY created_at ASC, id ASC
+	`
+
+	rows, err := store.pool.Query(ctx, query, symbol.Code, sessionDate)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	orders := make([]domain.Order, 0)
+	for rows.Next() {
+		var order domain.Order
+		if err := rows.Scan(
+			&order.ID,
+			&order.ParticipantID,
+			&order.Side,
+			&order.Price,
+			&order.Quantity,
+			&order.RemainingQuantity,
+			&order.Status,
+			&order.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		order.Symbol = symbol
+		order.SessionDate = sessionDate
+		orders = append(orders, order)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return orders, nil
 }
 
 func (store *PostgresStore) UpdateOrder(ctx context.Context, order domain.Order) error {

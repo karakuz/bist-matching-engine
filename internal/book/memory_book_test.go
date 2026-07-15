@@ -11,8 +11,8 @@ import (
 var testParticipantId int64 = 1
 
 func TestMemoryBook(t *testing.T) {
-	symbol, err := domain.NewSymbol("ASELS", 10);
-	if err != nil{
+	symbol, err := domain.NewSymbol("ASELS", 10)
+	if err != nil {
 		t.Fatalf("Error creating symbol: %v", err)
 	}
 
@@ -20,33 +20,36 @@ func TestMemoryBook(t *testing.T) {
 		orderBook := NewBook(symbol, time.Now().UTC(), 300)
 
 		order1, err := domain.NewOrder(
-			uuid.NewString(), 
-			testParticipantId, 
-			symbol, 
+			uuid.NewString(),
+			testParticipantId,
+			symbol,
 			time.Now().UTC(),
-			domain.SideBuy, 
-			1050, 
-			100, 
+			domain.SideBuy,
+			1050,
+			100,
 			time.Now().UTC())
-		if err != nil { t.Fatalf("new order1 failed: %v", err) }
+		if err != nil {
+			t.Fatalf("new order1 failed: %v", err)
+		}
 
 		order2, err := domain.NewOrder(
-			uuid.NewString(), 
-			testParticipantId, 
-			symbol, 
+			uuid.NewString(),
+			testParticipantId,
+			symbol,
 			time.Now().UTC(),
-			domain.SideSell, 
-			1050, 
-			100, 
+			domain.SideSell,
+			1050,
+			100,
 			time.Now().UTC())
-		if err != nil { t.Fatalf("new order1 failed: %v", err)}
-	
+		if err != nil {
+			t.Fatalf("new order1 failed: %v", err)
+		}
+
 		addErr := orderBook.Add(order1, order2)
-		if addErr != ErrInvalidAddSideConflict{
+		if addErr != ErrInvalidAddSideConflict {
 			t.Fatalf("Expected ErrInvalidAddSideConflict, got %v", addErr)
 		}
 	})
-
 
 	t.Run("best buy returns highest price", func(t *testing.T) {
 		var smallerPrice int64 = 1050
@@ -55,13 +58,13 @@ func TestMemoryBook(t *testing.T) {
 		orderBook := NewBook(symbol, time.Now().UTC(), 300)
 
 		order1, err := domain.NewOrder(
-			uuid.NewString(), 
-			testParticipantId, 
-			symbol, 
+			uuid.NewString(),
+			testParticipantId,
+			symbol,
 			time.Now().UTC(),
-			domain.SideBuy, 
-			smallerPrice, 
-			100, 
+			domain.SideBuy,
+			smallerPrice,
+			100,
 			time.Now().UTC())
 		if err != nil {
 			t.Fatalf("new order1 failed: %v", err)
@@ -71,13 +74,13 @@ func TestMemoryBook(t *testing.T) {
 		}
 
 		order2, err := domain.NewOrder(
-			uuid.NewString(), 
-			testParticipantId, 
-			symbol, 
+			uuid.NewString(),
+			testParticipantId,
+			symbol,
 			time.Now().UTC(),
-			domain.SideBuy, 
-			highestPrice, 
-			100, 
+			domain.SideBuy,
+			highestPrice,
+			100,
 			time.Now().UTC())
 		if err != nil {
 			t.Fatalf("new order2 failed: %v", err)
@@ -102,13 +105,13 @@ func TestMemoryBook(t *testing.T) {
 		orderBook := NewBook(symbol, time.Now().UTC(), 300)
 
 		order1, err := domain.NewOrder(
-			uuid.NewString(), 
-			testParticipantId, 
-			symbol, 
+			uuid.NewString(),
+			testParticipantId,
+			symbol,
 			time.Now().UTC(),
-			domain.SideSell, 
-			smallerPrice, 
-			100, 
+			domain.SideSell,
+			smallerPrice,
+			100,
 			time.Now().UTC())
 		if err != nil {
 			t.Fatalf("new order1 failed: %v", err)
@@ -118,13 +121,13 @@ func TestMemoryBook(t *testing.T) {
 		}
 
 		order2, err := domain.NewOrder(
-			uuid.NewString(), 
-			testParticipantId, 
-			symbol, 
+			uuid.NewString(),
+			testParticipantId,
+			symbol,
 			time.Now().UTC(),
-			domain.SideSell, 
-			highestPrice, 
-			100, 
+			domain.SideSell,
+			highestPrice,
+			100,
 			time.Now().UTC())
 		if err != nil {
 			t.Fatalf("new order2 failed: %v", err)
@@ -147,13 +150,13 @@ func TestMemoryBook(t *testing.T) {
 		orderBook := NewBook(symbol, time.Now().UTC(), 300)
 
 		order1, err := domain.NewOrder(
-			uuid.NewString(), 
-			testParticipantId, 
-			symbol, 
+			uuid.NewString(),
+			testParticipantId,
+			symbol,
 			time.Now().UTC(),
-			domain.SideBuy, 
-			orderPrice, 
-			100, 
+			domain.SideBuy,
+			orderPrice,
+			100,
 			time.Now().UTC())
 		if err != nil {
 			t.Fatalf("new order1 failed: %v", err)
@@ -163,13 +166,13 @@ func TestMemoryBook(t *testing.T) {
 		}
 
 		order2, err := domain.NewOrder(
-			uuid.NewString(), 
-			testParticipantId, 
-			symbol, 
+			uuid.NewString(),
+			testParticipantId,
+			symbol,
 			time.Now().UTC(),
-			domain.SideBuy, 
-			orderPrice, 
-			100, 
+			domain.SideBuy,
+			orderPrice,
+			100,
 			time.Now().UTC())
 		if err != nil {
 			t.Fatalf("new order2 failed: %v", err)
@@ -212,4 +215,18 @@ func TestMemoryBook(t *testing.T) {
 		}
 	})
 
+}
+
+func TestNewBookStoresSessionDate(t *testing.T) {
+	symbol, err := domain.NewSymbol("ASELS", 1)
+	if err != nil {
+		t.Fatalf("NewSymbol failed: %v", err)
+	}
+
+	sessionDate := time.Date(2026, time.July, 15, 0, 0, 0, 0, time.UTC)
+	orderBook := NewBook(symbol, sessionDate, 35000)
+
+	if !orderBook.SessionDate.Equal(sessionDate) {
+		t.Fatalf("expected session date %v, got %v", sessionDate, orderBook.SessionDate)
+	}
 }
