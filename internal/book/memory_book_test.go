@@ -1,14 +1,38 @@
 package book
 
 import (
-	"bist-matching-engine/internal/domain"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
+
+	"bist-matching-engine/internal/domain"
 
 	"github.com/google/uuid"
 )
 
 var testParticipantId int64 = 1
+
+func createOrder(t *testing.T, symbol Symbol, side domain.Side, price int64, qty int64) domain.Order {
+	t.Helper()
+
+	now := time.Now().UTC()
+
+	order, err := domain.NewOrder(
+		uuid.NewString(),
+		testParticipantId,
+		symbol,
+		time.Now().UTC(),
+		side,
+		price,
+		qty,
+		now)
+	if err != nil {
+		t.Fatalf("createOrder failed: %v", err)
+	}
+
+	return order
+}
 
 func TestMemoryBook(t *testing.T) {
 	symbol, err := domain.NewSymbol("ASELS", 10)
@@ -17,33 +41,10 @@ func TestMemoryBook(t *testing.T) {
 	}
 
 	t.Run("same existing level can't be added to other side", func(t *testing.T) {
-		orderBook := NewBook(symbol, time.Now().UTC(), 300)
+		orderBook := NewBook(symbol, time.Now().UTC(), 1050)
 
-		order1, err := domain.NewOrder(
-			uuid.NewString(),
-			testParticipantId,
-			symbol,
-			time.Now().UTC(),
-			domain.SideBuy,
-			1050,
-			100,
-			time.Now().UTC())
-		if err != nil {
-			t.Fatalf("new order1 failed: %v", err)
-		}
-
-		order2, err := domain.NewOrder(
-			uuid.NewString(),
-			testParticipantId,
-			symbol,
-			time.Now().UTC(),
-			domain.SideSell,
-			1050,
-			100,
-			time.Now().UTC())
-		if err != nil {
-			t.Fatalf("new order1 failed: %v", err)
-		}
+		order1 := createOrder(t, symbol, domain.SideBuy, 1050, 100)
+		order2 := createOrder(t, symbol, domain.SideSell, 1050, 100)
 
 		addErr := orderBook.Add(order1, order2)
 		if addErr != ErrInvalidAddSideConflict {
@@ -53,38 +54,17 @@ func TestMemoryBook(t *testing.T) {
 
 	t.Run("best buy returns highest price", func(t *testing.T) {
 		var smallerPrice int64 = 1050
-		var highestPrice int64 = 1100
+		var higherPrice int64 = 1100
 
-		orderBook := NewBook(symbol, time.Now().UTC(), 300)
+		orderBook := NewBook(symbol, time.Now().UTC(), 1050)
 
-		order1, err := domain.NewOrder(
-			uuid.NewString(),
-			testParticipantId,
-			symbol,
-			time.Now().UTC(),
-			domain.SideBuy,
-			smallerPrice,
-			100,
-			time.Now().UTC())
-		if err != nil {
-			t.Fatalf("new order1 failed: %v", err)
-		}
+		order1 := createOrder(t, symbol, domain.SideBuy, smallerPrice, 100)
+		order2 := createOrder(t, symbol, domain.SideBuy, higherPrice, 100)
+
 		if err := orderBook.Add(order1); err != nil {
 			t.Fatalf("add order1 failed: %v", err)
 		}
 
-		order2, err := domain.NewOrder(
-			uuid.NewString(),
-			testParticipantId,
-			symbol,
-			time.Now().UTC(),
-			domain.SideBuy,
-			highestPrice,
-			100,
-			time.Now().UTC())
-		if err != nil {
-			t.Fatalf("new order2 failed: %v", err)
-		}
 		if err := orderBook.Add(order2); err != nil {
 			t.Fatalf("add order2 failed: %v", err)
 		}
@@ -93,45 +73,24 @@ func TestMemoryBook(t *testing.T) {
 		if !exists {
 			t.Fatalf("Best Price order does not exists")
 		}
-		if bestBuyOrder.Price != highestPrice {
+		if bestBuyOrder.Price != higherPrice {
 			t.Fatalf("unexpected Best Price: %d", bestBuyOrder.Price)
 		}
 	})
 
 	t.Run("best sell returns lowest price", func(t *testing.T) {
 		var smallerPrice int64 = 1050
-		var highestPrice int64 = 1100
+		var higherPrice int64 = 1100
 
-		orderBook := NewBook(symbol, time.Now().UTC(), 300)
+		orderBook := NewBook(symbol, time.Now().UTC(), 1050)
 
-		order1, err := domain.NewOrder(
-			uuid.NewString(),
-			testParticipantId,
-			symbol,
-			time.Now().UTC(),
-			domain.SideSell,
-			smallerPrice,
-			100,
-			time.Now().UTC())
-		if err != nil {
-			t.Fatalf("new order1 failed: %v", err)
-		}
+		order1 := createOrder(t, symbol, domain.SideSell, smallerPrice, 100)
+		order2 := createOrder(t, symbol, domain.SideSell, higherPrice, 100)
+
 		if err := orderBook.Add(order1); err != nil {
 			t.Fatalf("add order1 failed: %v", err)
 		}
 
-		order2, err := domain.NewOrder(
-			uuid.NewString(),
-			testParticipantId,
-			symbol,
-			time.Now().UTC(),
-			domain.SideSell,
-			highestPrice,
-			100,
-			time.Now().UTC())
-		if err != nil {
-			t.Fatalf("new order2 failed: %v", err)
-		}
 		if err := orderBook.Add(order2); err != nil {
 			t.Fatalf("add order2 failed: %v", err)
 		}
@@ -147,36 +106,15 @@ func TestMemoryBook(t *testing.T) {
 
 	t.Run("same price preserves FIFO", func(t *testing.T) {
 		const orderPrice int64 = 1000
-		orderBook := NewBook(symbol, time.Now().UTC(), 300)
+		orderBook := NewBook(symbol, time.Now().UTC(), orderPrice)
 
-		order1, err := domain.NewOrder(
-			uuid.NewString(),
-			testParticipantId,
-			symbol,
-			time.Now().UTC(),
-			domain.SideBuy,
-			orderPrice,
-			100,
-			time.Now().UTC())
-		if err != nil {
-			t.Fatalf("new order1 failed: %v", err)
-		}
+		order1 := createOrder(t, symbol, domain.SideBuy, orderPrice, 100)
+		order2 := createOrder(t, symbol, domain.SideBuy, orderPrice, 100)
+
 		if err := orderBook.Add(order1); err != nil {
 			t.Fatalf("add order1 failed: %v", err)
 		}
 
-		order2, err := domain.NewOrder(
-			uuid.NewString(),
-			testParticipantId,
-			symbol,
-			time.Now().UTC(),
-			domain.SideBuy,
-			orderPrice,
-			100,
-			time.Now().UTC())
-		if err != nil {
-			t.Fatalf("new order2 failed: %v", err)
-		}
 		if err := orderBook.Add(order2); err != nil {
 			t.Fatalf("add order2 failed: %v", err)
 		}
@@ -228,5 +166,145 @@ func TestNewBookStoresSessionDate(t *testing.T) {
 
 	if !orderBook.SessionDate.Equal(sessionDate) {
 		t.Fatalf("expected session date %v, got %v", sessionDate, orderBook.SessionDate)
+	}
+}
+
+func TestMemoryBookSnapshot(t *testing.T) {
+	symbol, err := domain.NewSymbol("ASELS", 10)
+	if err != nil {
+		t.Fatalf("NewSymbol failed: %v", err)
+	}
+
+	orderBook := NewBook(symbol, time.Now().UTC(), 35000)
+
+	levels := []struct {
+		side     domain.Side
+		price    int64
+		quantity int64
+	}{
+		{side: domain.SideBuy, price: 34990, quantity: 25},
+		{side: domain.SideBuy, price: 34990, quantity: 30},
+		{side: domain.SideBuy, price: 34980, quantity: 15},
+		{side: domain.SideBuy, price: 34970, quantity: 35},
+		/* {side: domain.SideBuy, price: 34960, quantity: 18},
+		{side: domain.SideBuy, price: 34950, quantity: 1},
+		{side: domain.SideBuy, price: 34940, quantity: 7},
+		{side: domain.SideBuy, price: 34930, quantity: 74}, */
+
+		{side: domain.SideSell, price: 35000, quantity: 15},
+		{side: domain.SideSell, price: 35000, quantity: 25},
+		{side: domain.SideSell, price: 35010, quantity: 29},
+		{side: domain.SideSell, price: 35020, quantity: 11},
+		{side: domain.SideSell, price: 35060, quantity: 14},
+		{side: domain.SideSell, price: 35070, quantity: 54},
+		{side: domain.SideSell, price: 35090, quantity: 54},
+	}
+
+	for _, level := range levels {
+		order := createOrder(t, symbol, level.side, level.price, level.quantity)
+		orderBook.Add(order)
+	}
+
+	bookSnapshot, err := orderBook.Snapshot(5)
+
+	if err != nil {
+		t.Fatalf("Error occured on orderBook.Snapshot: %v", err)
+	}
+
+	if len(bookSnapshot.Buy) != 3 {
+		t.Fatalf("Expected len(bookSnapshot.Buy) to be 3, got %d", len(bookSnapshot.Buy))
+	}
+	if len(bookSnapshot.Sell) != 5 {
+		t.Fatalf("Expected len(bookSnapshot.Sell) to be 5, got %d", len(bookSnapshot.Sell))
+	}
+
+	if bookSnapshot.Buy[0].Price != 34990 {
+		t.Fatalf("Expected first level of bookSnapshot.Buy's price to be 34990, got %d", bookSnapshot.Buy[0].Price)
+	}
+	if bookSnapshot.Sell[0].Price != 35000 {
+		t.Fatalf("Expected first level of bookSnapshot.Sell's price to be 35000, got %d", bookSnapshot.Sell[0].Price)
+	}
+
+	if bookSnapshot.Buy[0].Quantity != 55 {
+		t.Fatalf("Expected first level of bookSnapshot.Buy's Quantity to be 55, got %d", bookSnapshot.Buy[0].Quantity)
+	}
+	if bookSnapshot.Sell[0].Quantity != 40 {
+		t.Fatalf("Expected first level of bookSnapshot.Sell's Quantity to be 40, got %d", bookSnapshot.Sell[0].Quantity)
+	}
+}
+
+func TestMemoryBookSnapshot_EmptyBookReturnsNonNilEmptySlices(t *testing.T) {
+	symbol, err := domain.NewSymbol("ASELS", 10)
+	if err != nil {
+		t.Fatalf("NewSymbol failed: %v", err)
+	}
+
+	orderBook := NewBook(symbol, time.Now().UTC(), 35000)
+	snapshot, err := orderBook.Snapshot(5)
+	if err != nil {
+		t.Fatalf("Snapshot failed: %v", err)
+	}
+
+	if snapshot.Buy == nil {
+		t.Fatal("expected non-nil empty buy levels")
+	}
+	if len(snapshot.Buy) != 0 {
+		t.Fatalf("expected no buy levels, got %d", len(snapshot.Buy))
+	}
+	if snapshot.Sell == nil {
+		t.Fatal("expected non-nil empty sell levels")
+	}
+	if len(snapshot.Sell) != 0 {
+		t.Fatalf("expected no sell levels, got %d", len(snapshot.Sell))
+	}
+}
+
+func TestMemoryBookSnapshot_AggregatesRemainingQuantity(t *testing.T) {
+	symbol, err := domain.NewSymbol("ASELS", 10)
+	if err != nil {
+		t.Fatalf("NewSymbol failed: %v", err)
+	}
+
+	orderBook := NewBook(symbol, time.Now().UTC(), 35000)
+	firstOrder := createOrder(t, symbol, domain.SideBuy, 34990, 100)
+	firstOrder.RemainingQuantity = 40
+	firstOrder.Status = domain.StatusPartiallyFilled
+
+	secondOrder := createOrder(t, symbol, domain.SideBuy, 34990, 80)
+	secondOrder.RemainingQuantity = 25
+	secondOrder.Status = domain.StatusPartiallyFilled
+
+	if err := orderBook.Add(firstOrder, secondOrder); err != nil {
+		t.Fatalf("Add failed: %v", err)
+	}
+
+	snapshot, err := orderBook.Snapshot(1)
+	if err != nil {
+		t.Fatalf("Snapshot failed: %v", err)
+	}
+
+	if len(snapshot.Buy) != 1 {
+		t.Fatalf("expected one buy level, got %d", len(snapshot.Buy))
+	}
+	if snapshot.Buy[0].Quantity != 65 {
+		t.Fatalf("expected aggregated remaining quantity 65, got %d", snapshot.Buy[0].Quantity)
+	}
+}
+
+func TestMemoryBookSnapshot_RejectsNonPositiveLevels(t *testing.T) {
+	symbol, err := domain.NewSymbol("ASELS", 10)
+	if err != nil {
+		t.Fatalf("NewSymbol failed: %v", err)
+	}
+
+	orderBook := NewBook(symbol, time.Now().UTC(), 35000)
+
+	for _, levels := range []int64{0, -1, -10} {
+		t.Run(fmt.Sprintf("levels_%d", levels), func(t *testing.T) {
+			_, err := orderBook.Snapshot(levels)
+			if !errors.Is(err, ErrSnapshotSizeNonPositive) {
+				t.Fatalf("expected ErrSnapshotSizeNonPositive, got %v", err)
+			}
+		})
 	}
 }

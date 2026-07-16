@@ -3,15 +3,23 @@ package book
 import (
 	"bist-matching-engine/internal/domain"
 	"errors"
+	"fmt"
+	"slices"
 	"time"
 )
 
 type Order = domain.Order
 type Symbol = domain.Symbol
 
+const MAX_SNAPSHOT_LEVELS = 100
+
 var (
-	ErrInvalidAddSideConflict = errors.New("Book has different side than current one on this level")
-	ErrInvalidOrderSymbol     = errors.New("Order symbol does not match with Book's symbol")
+	ErrInvalidAddSideConflict   = errors.New("Book has different side than current one on this level")
+	ErrInvalidOrderSymbol       = errors.New("Order symbol does not match with Book's symbol")
+	ErrPriceOutsideAllowedRange = errors.New("order price must be within the lower and upper price limits")
+
+	ErrSnapshotSizeNonPositive                = errors.New("Snapshot size must be > 0")
+	ErrRequestedMoreLevelsThanMaxSnapshotSize = fmt.Errorf("Snapshot size can not exceed %v", MAX_SNAPSHOT_LEVELS)
 )
 
 type Book struct {
@@ -34,6 +42,14 @@ type Book struct {
 }
 
 func (book *Book) Add(orders ...Order) error {
+	//check all order prices - whether they fit within limits
+	for _, order := range orders {
+		isWithinLimit := book.lowerPriceLimit <= order.Price && book.upperPriceLimit >= order.Price
+		if !isWithinLimit {
+			return ErrPriceOutsideAllowedRange
+		}
+	}
+
 	for _, order := range orders {
 		var sideLevels map[int64][]Order
 
@@ -237,6 +253,84 @@ func NewBook(symbol Symbol, sessionDate time.Time, openingPrice int64) *Book {
 		buys:            make(map[int64][]Order),
 		sells:           make(map[int64][]Order),
 	}
+}
+
+type PriceLevel struct {
+	Price    int64 `json:"price"`
+	Quantity int64 `json:"quantity"`
+}
+
+type Snapshot struct {
+	Symbol string       `json:"symbol"`
+	Buy    []PriceLevel `json:"buy"`
+	Sell   []PriceLevel `json:"sell"`
+}
+
+func (book *Book) Snapshot(levels int64) (Snapshot, error) {
+	if levels < 1 {
+		return Snapshot{}, ErrSnapshotSizeNonPositive
+	}
+	if levels > MAX_SNAPSHOT_LEVELS {
+		return Snapshot{}, ErrRequestedMoreLevelsThanMaxSnapshotSize
+	}
+	snapshot := Snapshot{
+		Symbol: book.Symbol.Code,
+		Buy:    make([]PriceLevel, 0, levels),
+		Sell:   make([]PriceLevel, 0, levels),
+	}
+
+	buyPrices := make([]int64, 0, levels)
+	for buyPrice := range book.buys {
+		buyPrices = append(buyPrices, buyPrice)
+	}
+
+	//sort descending
+	slices.Sort(buyPrices)
+	slices.Reverse(buyPrices)
+
+	for _, buyPrice := range buyPrices {
+		levelOrders := book.buys[buyPrice]
+
+		priceLevel := PriceLevel{
+			Price:    buyPrice,
+			Quantity: 0,
+		}
+		for _, levelOrder := range levelOrders {
+			priceLevel.Quantity += levelOrder.RemainingQuantity
+		}
+		snapshot.Buy = append(snapshot.Buy, priceLevel)
+
+		if int64(len(snapshot.Buy)) == levels {
+			break
+		}
+	}
+
+	sellPrices := make([]int64, 0, levels)
+	for sellPrice := range book.sells {
+		sellPrices = append(sellPrices, sellPrice)
+	}
+
+	//sort ascending
+	slices.Sort(sellPrices)
+
+	for _, sellPrice := range sellPrices {
+		levelOrders := book.sells[sellPrice]
+
+		priceLevel := PriceLevel{
+			Price:    sellPrice,
+			Quantity: 0,
+		}
+		for _, levelOrder := range levelOrders {
+			priceLevel.Quantity += levelOrder.RemainingQuantity
+		}
+		snapshot.Sell = append(snapshot.Sell, priceLevel)
+
+		if int64(len(snapshot.Sell)) == levels {
+			break
+		}
+	}
+
+	return snapshot, nil
 }
 
 func (book *Book) GetLevel(side domain.Side, price int64) []Order {

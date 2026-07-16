@@ -2,7 +2,7 @@ package matching
 
 import (
 	"errors"
-	//"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +18,7 @@ var (
 )
 
 type Engine struct {
+	mutex sync.RWMutex
 	book *book.Book
 }
 
@@ -187,6 +188,9 @@ func submitAsk(engine *Engine, order *domain.Order) (*domain.Order, []domain.Tra
 }
 
 func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade, error) {
+	engine.mutex.Lock()
+	defer engine.mutex.Unlock()
+	
 	if order.Symbol.Code != engine.book.Symbol.Code {
 		return order, make([]domain.Trade, 0), ErrOrderSymbolDoesNotMatchWithEngineSymbol
 	}
@@ -209,4 +213,11 @@ func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade
 
 func (engine *Engine) SessionDate() time.Time{
 	return engine.book.SessionDate
+}
+
+func (engine *Engine) Snapshot(levels int64) (book.Snapshot, error){
+	engine.mutex.RLock()
+	defer engine.mutex.RUnlock()
+
+	return engine.book.Snapshot(levels)
 }
