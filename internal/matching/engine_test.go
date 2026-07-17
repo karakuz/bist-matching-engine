@@ -3,6 +3,8 @@ package matching
 import (
 	"bist-matching-engine/internal/book"
 	"bist-matching-engine/internal/domain"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,8 +12,8 @@ import (
 )
 
 type Symbol = domain.Symbol
-var testParticipantId int64 = 1 
 
+var testParticipantId int64 = 1
 
 func createSymbol(t *testing.T) domain.Symbol {
 	t.Helper()
@@ -29,15 +31,14 @@ func createOrder(t *testing.T, symbol Symbol, side domain.Side, price int64, qty
 
 	now := time.Now().UTC()
 
-
 	order, err := domain.NewOrder(
-		uuid.NewString(), 
-		testParticipantId, 
-		symbol, 
+		uuid.NewString(),
+		testParticipantId,
+		symbol,
 		time.Now().UTC(),
-		side, 
-		price, 
-		qty, 
+		side,
+		price,
+		qty,
 		now)
 	if err != nil {
 		t.Fatalf("createOrder failed: %v", err)
@@ -566,13 +567,13 @@ func TestEngineForBuyOrders(t *testing.T) {
 				t3 := time.Date(2026, 5, 2, 10, 0, 0, 2, time.UTC)
 
 				t1SellOrder, err := domain.NewOrder(
-					uuid.NewString(), 
-					testParticipantId, 
-					symbol, 
+					uuid.NewString(),
+					testParticipantId,
+					symbol,
 					t1,
-					domain.SideSell, 
-					300, 
-					10, 
+					domain.SideSell,
+					300,
+					10,
 					t1)
 				if err != nil {
 					t.Fatalf("domain.NewOrder failed: %v", err)
@@ -592,13 +593,13 @@ func TestEngineForBuyOrders(t *testing.T) {
 				}
 
 				t3BuyOrder, err := domain.NewOrder(
-					uuid.NewString(), 
-					testParticipantId, 
-					symbol, 
+					uuid.NewString(),
+					testParticipantId,
+					symbol,
 					t3,
-					domain.SideBuy, 
-					300, 
-					tt.buyQty, 
+					domain.SideBuy,
+					300,
+					tt.buyQty,
 					t3)
 				if err != nil {
 					t.Fatalf("domain.NewOrder failed: %v", err)
@@ -1115,39 +1116,39 @@ func TestEngineForSellOrders(t *testing.T) {
 				t3 := time.Date(2026, 5, 2, 10, 0, 0, 2, time.UTC)
 
 				t1BuyOrder, err := domain.NewOrder(
-					uuid.NewString(), 
-					testParticipantId, 
-					symbol, 
+					uuid.NewString(),
+					testParticipantId,
+					symbol,
 					t1,
-					domain.SideBuy, 
-					300, 
-					10, 
+					domain.SideBuy,
+					300,
+					10,
 					t1)
 				if err != nil {
 					t.Fatalf("domain.NewOrder failed: %v", err)
 				}
 
 				t2BuyOrder, err := domain.NewOrder(
-					uuid.NewString(), 
-					testParticipantId, 
-					symbol, 
+					uuid.NewString(),
+					testParticipantId,
+					symbol,
 					t2,
-					domain.SideBuy, 
-					300, 
-					10, 
+					domain.SideBuy,
+					300,
+					10,
 					t2)
 				if err != nil {
 					t.Fatalf("domain.NewOrder failed: %v", err)
 				}
 
 				t3SellOrder, err := domain.NewOrder(
-					uuid.NewString(), 
-					testParticipantId, 
-					symbol, 
+					uuid.NewString(),
+					testParticipantId,
+					symbol,
 					t3,
-					domain.SideSell, 
-					300, 
-					tt.sellQty, 
+					domain.SideSell,
+					300,
+					tt.sellQty,
 					t3)
 				if err != nil {
 					t.Fatalf("domain.NewOrder failed: %v", err)
@@ -1203,4 +1204,118 @@ func TestEngineForSellOrders(t *testing.T) {
 			t.Fatalf("expected last trade price to be 301, got: %d", engine.book.GetLastTradePrice())
 		}
 	})
+}
+
+func TestEngine_ConcurrentSubmitAndSnapshot(t *testing.T) {
+	symbol := createSymbol(t)
+	orderBook := book.NewBook(
+		symbol,
+		time.Now().UTC(),
+		35000,
+	)
+	engine := NewEngine(orderBook)
+
+	const (
+		submissionCount    = 100
+		snapshotReaders    = 8
+		snapshotsPerReader = 100
+		orderPrice         = int64(34900)
+	)
+
+	// Create orders before starting goroutines. This avoids using testing.T
+	// and constructing shared test data inside concurrent functions.
+	orders := make([]domain.Order, submissionCount)
+	for index := range orders {
+		orders[index] = createOrder(
+			t,
+			symbol,
+			domain.SideBuy,
+			orderPrice,
+			1,
+		)
+	}
+
+	start := make(chan struct{})
+	errorsChannel := make(chan error, submissionCount + snapshotReaders*snapshotsPerReader)
+
+	var waitGroup sync.WaitGroup
+
+	for index := range orders {
+		waitGroup.Add(1)
+
+		order := orders[index]
+		go func() {
+			defer waitGroup.Done()
+			<-start
+
+			_, _, err := engine.Submit(&order)
+			if err != nil {
+				errorsChannel <- err
+			}
+		}()
+	}
+
+	for range snapshotReaders {
+		waitGroup.Add(1)
+
+		go func() {
+			defer waitGroup.Done()
+			<-start
+
+			for range snapshotsPerReader {
+				snapshot, err := engine.Snapshot(5)
+				if err != nil {
+					errorsChannel <- err
+					continue
+				}
+
+				if len(snapshot.Buy) > 1 {
+					errorsChannel <- fmt.Errorf(
+						"expected at most one buy level, got %d",
+						len(snapshot.Buy),
+					)
+				}
+			}
+		}()
+	}
+
+	// Release all goroutines at approximately the same time.
+	close(start)
+
+	waitGroup.Wait()
+	close(errorsChannel)
+
+	for err := range errorsChannel {
+		t.Errorf("concurrent operation failed: %v", err)
+	}
+
+	finalSnapshot, err := engine.Snapshot(5)
+	if err != nil {
+		t.Fatalf("final Snapshot failed: %v", err)
+	}
+
+	if len(finalSnapshot.Buy) != 1 {
+		t.Fatalf(
+			"expected one final buy level, got %d",
+			len(finalSnapshot.Buy),
+		)
+	}
+
+	level := finalSnapshot.Buy[0]
+
+	if level.Price != orderPrice {
+		t.Fatalf(
+			"expected final price %d, got %d",
+			orderPrice,
+			level.Price,
+		)
+	}
+
+	if level.Quantity != submissionCount {
+		t.Fatalf(
+			"expected final quantity %d, got %d",
+			submissionCount,
+			level.Quantity,
+		)
+	}
 }
