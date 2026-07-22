@@ -8,6 +8,7 @@ import (
 	"bist-matching-engine/internal/book"
 	"bist-matching-engine/internal/matching"
 	"bist-matching-engine/internal/storage"
+	"bist-matching-engine/internal/app"
 
 	"github.com/gin-gonic/gin"
 
@@ -28,16 +29,16 @@ func RegisterRoutes(
 		return
 	})
 
-	router.GET("/orderbook/:symbol/:levels", func(c *gin.Context) {
+	router.GET("/engine/:symbol/:levels", func(c *gin.Context) {
 		const maxSnapshotLevels = 100
 
 		symbol := strings.ToUpper(c.Param("symbol"))
 		levelsStr := c.Param("levels")
 
-		orderBook := engine[symbol]
-		if orderBook == nil {
+		engine := engine[symbol]
+		if engine == nil {
 			c.JSON(stdhttp.StatusNotFound, gin.H{
-				"message": fmt.Sprintf("order book for '%s' not found", symbol),
+				"message": fmt.Sprintf("order engine for '%s' not found", symbol),
 			})
 			return
 		}
@@ -51,7 +52,7 @@ func RegisterRoutes(
 			return
 		}
 
-		snapshot, err := orderBook.Snapshot(int64(levels))
+		snapshot, err := engine.Snapshot(int64(levels))
 		if err != nil {
 			switch {
 			case errors.Is(err, book.ErrSnapshotSizeNonPositive):
@@ -76,7 +77,7 @@ func RegisterRoutes(
 		c.JSON(stdhttp.StatusOK, snapshot)
 	})
 
-	/* router.POST("/orders", func(c *gin.Context) {
+	router.POST("/orders", func(c *gin.Context) {
 		var req app.SubmitOrderRequest
 
 		err := c.ShouldBindJSON(&req)
@@ -87,14 +88,31 @@ func RegisterRoutes(
 			return
 		}
 
+		engine := engine[req.Symbol]
+		if engine == nil {
+			c.JSON(stdhttp.StatusNotFound, gin.H{
+				"message": fmt.Sprintf("order engine for '%s' not found", req.Symbol),
+			})
+			return
+		}
+
 		result, err := app.SubmitOrder(c.Request.Context(), store, engine, req)
 		if err != nil {
-			c.JSON(stdhttp.StatusBadRequest, gin.H{
-				"error": err.Error(),
+			if errors.Is(err, app.ErrInvalidOrder) {
+				c.JSON(stdhttp.StatusBadRequest, gin.H{
+					"message": err.Error(),
+				})
+				return
+			}
+
+			log.Printf("submit order failed: %v", err)
+
+			c.JSON(stdhttp.StatusInternalServerError, gin.H{
+				"message": "internal server error",
 			})
 			return
 		}
 
 		c.JSON(stdhttp.StatusCreated, result)
-	}) */
+	})
 }

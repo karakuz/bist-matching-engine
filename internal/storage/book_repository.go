@@ -3,7 +3,13 @@ package storage
 import (
 	"bist-matching-engine/internal/domain"
 	"context"
+	"errors"
 	"time"
+	"fmt"
+)
+
+var (
+	ErrBookInitializationNotFound = errors.New("BookInitialization not found")
 )
 
 type BookInitialization struct {
@@ -58,4 +64,23 @@ func (store *PostgresStore) GetBookInitializations(ctx context.Context) ([]BookI
 	}
 
 	return bookInitializations, nil
+}
+
+func (store *PostgresStore) GetBookInitialization(ctx context.Context, symbolCode string) (BookInitialization, error) {
+	initializations, err := store.GetBookInitializations(ctx)
+	if err != nil {
+		return BookInitialization{}, err
+	}
+
+	for _, initialization := range initializations {
+		if initialization.Symbol.Code == symbolCode {
+			return initialization, nil
+		}
+	}
+
+	return BookInitialization{}, fmt.Errorf(
+		"%w for symbol %q",
+		ErrBookInitializationNotFound,
+		symbolCode,
+	)
 }

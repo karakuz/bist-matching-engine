@@ -50,19 +50,19 @@ func newTrade(engine *Engine, order *domain.Order, restingOrder domain.Order, qu
 	}
 }
 
-func submitBid(engine *Engine, order *domain.Order) (*domain.Order, []domain.Trade, error) {
+func submitBid(engine *Engine, order *domain.Order) (MatchResult, error) {
 	var err error = nil
-	trades := make([]domain.Trade, 0)
+	matchResult := newMatchResult(order)
 	bestSellOrder, bestSellOrderExists := engine.book.BestSell()
 
 	if !bestSellOrderExists {
 		err = engine.book.Add(*order)
-		return order, trades, err
+		return matchResult, err
 	}
 
 	if order.Price < bestSellOrder.Price {
 		err = engine.book.Add(*order)
-		return order, trades, err
+		return matchResult, err
 	} else if order.Price == bestSellOrder.Price {
 		for bestSellOrderExists && order.Price == bestSellOrder.Price && order.RemainingQuantity > 0 {
 			tradeQty := min(order.RemainingQuantity, bestSellOrder.RemainingQuantity)
@@ -73,10 +73,15 @@ func submitBid(engine *Engine, order *domain.Order) (*domain.Order, []domain.Tra
 			} else {
 				order.Status = domain.StatusPartiallyFilled
 			}
-			engine.book.ReduceBestSell(tradeQty)
+
+			updatedRestingOrder, exists :=engine.book.ReduceBestSell(tradeQty)
+			if !exists {
+				return matchResult, ErrUnhandledCase
+			}
+			matchResult.RestingOrderUpdates = append(matchResult.RestingOrderUpdates, updatedRestingOrder)
 
 			trade := newTrade(engine, order, bestSellOrder, tradeQty)
-			trades = append(trades, trade)
+			matchResult.Trades = append(matchResult.Trades, trade)
 
 			bestSellOrder, bestSellOrderExists = engine.book.BestSell()
 		}
@@ -85,7 +90,7 @@ func submitBid(engine *Engine, order *domain.Order) (*domain.Order, []domain.Tra
 			err = engine.book.Add(*order)
 		}
 
-		return order, trades, err
+		return matchResult, err
 	} else if order.Price > bestSellOrder.Price {
 		for bestSellOrderExists &&
 			order.Price >= bestSellOrder.Price &&
@@ -94,8 +99,13 @@ func submitBid(engine *Engine, order *domain.Order) (*domain.Order, []domain.Tra
 			tradeQty := min(bestSellOrder.RemainingQuantity, order.RemainingQuantity)
 
 			trade := newTrade(engine, order, bestSellOrder, tradeQty)
-			trades = append(trades, trade)
-			engine.book.ReduceBestSell(tradeQty)
+			matchResult.Trades = append(matchResult.Trades, trade)
+			
+			updatedRestingOrder, exists := engine.book.ReduceBestSell(tradeQty)
+			if !exists {
+				return matchResult, ErrUnhandledCase
+			}
+			matchResult.RestingOrderUpdates = append(matchResult.RestingOrderUpdates, updatedRestingOrder)
 
 			order.RemainingQuantity -= tradeQty
 			if order.RemainingQuantity == 0 {
@@ -113,25 +123,25 @@ func submitBid(engine *Engine, order *domain.Order) (*domain.Order, []domain.Tra
 			err = engine.book.Add(*order)
 		}
 
-		return order, trades, err
+		return matchResult, err
 	}
 
-	return order, trades, ErrUnhandledCase
+	return matchResult, ErrUnhandledCase
 }
 
-func submitAsk(engine *Engine, order *domain.Order) (*domain.Order, []domain.Trade, error) {
+func submitAsk(engine *Engine, order *domain.Order) (MatchResult, error) {
 	var err error = nil
-	trades := make([]domain.Trade, 0)
+	matchResult := newMatchResult(order)
 	bestBuyOrder, bestBuyOrderExists := engine.book.BestBuy()
 
 	if !bestBuyOrderExists {
 		err = engine.book.Add(*order)
-		return order, trades, err
+		return matchResult, err
 	}
 
 	if order.Price > bestBuyOrder.Price {
 		err = engine.book.Add(*order)
-		return order, trades, err
+		return matchResult, err
 	} else if order.Price == bestBuyOrder.Price {
 		for bestBuyOrderExists && order.Price <= bestBuyOrder.Price && order.RemainingQuantity > 0 {
 			tradeQty := min(order.RemainingQuantity, bestBuyOrder.RemainingQuantity)
@@ -142,10 +152,14 @@ func submitAsk(engine *Engine, order *domain.Order) (*domain.Order, []domain.Tra
 			} else {
 				order.Status = domain.StatusPartiallyFilled
 			}
-			engine.book.ReduceBestBuy(tradeQty)
+			updatedRestingOrder, exists := engine.book.ReduceBestBuy(tradeQty)
+			if !exists {
+				return matchResult, ErrUnhandledCase
+			}
+			matchResult.RestingOrderUpdates = append(matchResult.RestingOrderUpdates, updatedRestingOrder)
 
 			trade := newTrade(engine, order, bestBuyOrder, tradeQty)
-			trades = append(trades, trade)
+			matchResult.Trades = append(matchResult.Trades, trade)
 
 			bestBuyOrder, bestBuyOrderExists = engine.book.BestBuy()
 		}
@@ -154,7 +168,7 @@ func submitAsk(engine *Engine, order *domain.Order) (*domain.Order, []domain.Tra
 			err = engine.book.Add(*order)
 		}
 
-		return order, trades, err
+		return matchResult, err
 	} else if order.Price < bestBuyOrder.Price {
 		for bestBuyOrderExists &&
 			order.Price <= bestBuyOrder.Price &&
@@ -163,8 +177,13 @@ func submitAsk(engine *Engine, order *domain.Order) (*domain.Order, []domain.Tra
 			tradeQty := min(bestBuyOrder.RemainingQuantity, order.RemainingQuantity)
 
 			trade := newTrade(engine, order, bestBuyOrder, tradeQty)
-			trades = append(trades, trade)
-			engine.book.ReduceBestBuy(tradeQty)
+			matchResult.Trades = append(matchResult.Trades, trade)
+
+			updatedRestingOrder, exists := engine.book.ReduceBestBuy(tradeQty)
+			if !exists {
+				return matchResult, ErrUnhandledCase
+			}
+			matchResult.RestingOrderUpdates = append(matchResult.RestingOrderUpdates, updatedRestingOrder)
 
 			order.RemainingQuantity -= tradeQty
 			if order.RemainingQuantity == 0 {
@@ -181,25 +200,41 @@ func submitAsk(engine *Engine, order *domain.Order) (*domain.Order, []domain.Tra
 		if order.RemainingQuantity > 0 {
 			err = engine.book.Add(*order)
 		}
-		return order, trades, err
+		return matchResult, err
 	}
 
-	return order, trades, ErrUnhandledCase
+	return matchResult, ErrUnhandledCase
 }
 
-func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade, error) {
+type MatchResult struct {
+	IncomingOrder       *domain.Order
+	RestingOrderUpdates []domain.Order
+	Trades              []domain.Trade
+}
+
+func newMatchResult(order *domain.Order) MatchResult{
+	return MatchResult{
+		IncomingOrder: order,
+		RestingOrderUpdates: make([]domain.Order, 0),
+		Trades: make([]domain.Trade, 0),
+	}
+}
+
+func (engine *Engine) Submit(order *domain.Order) (MatchResult, error) { //(*domain.Order, []domain.Trade, error)
 	engine.mutex.Lock()
 	defer engine.mutex.Unlock()
-	
+
+	matchResult := newMatchResult(order)
+
 	if order.Symbol.Code != engine.book.Symbol.Code {
-		return order, make([]domain.Trade, 0), ErrOrderSymbolDoesNotMatchWithEngineSymbol
+		return matchResult, ErrOrderSymbolDoesNotMatchWithEngineSymbol
 	}
 	upperPriceLimit := engine.book.GetUpperPriceLimit()
 	lowerPriceLimit := engine.book.GetLowerPriceLimit()
 
 	isValidPrice := upperPriceLimit >= order.Price && lowerPriceLimit <= order.Price
 	if !isValidPrice {
-		return order, make([]domain.Trade, 0), ErrPriceOutsideAllowedRange
+		return matchResult, ErrPriceOutsideAllowedRange
 	}
 
 	if order.Side == domain.SideBuy {
@@ -208,7 +243,7 @@ func (engine *Engine) Submit(order *domain.Order) (*domain.Order, []domain.Trade
 		return submitAsk(engine, order)
 	}
 
-	return order, make([]domain.Trade, 0), ErrUnhandledCase
+	return matchResult, ErrUnhandledCase
 }
 
 func (engine *Engine) SessionDate() time.Time{

@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"time"
+	"strings"
+	"fmt"
 
 	"bist-matching-engine/internal/domain"
 )
@@ -98,25 +100,96 @@ func (store *PostgresStore) GetRestingOrdersForSession(
 	return orders, nil
 }
 
-func (store *PostgresStore) UpdateOrder(ctx context.Context, order domain.Order) error {
-	const query = `
-		UPDATE orders
+/* 
+This produces one statement such as:
+	UPDATE orders
+	SET ...
+	FROM (
+		VALUES
+			('incoming-id', 9, 'PARTIALLY_FILLED'),
+			('resting-id-1', 0, 'FILLED'),
+			('resting-id-2', 40, 'PARTIALLY_FILLED')
+	) ...
+*/
+func (store *PostgresStore) UpdateOrders(
+	ctx context.Context,
+	orders []domain.Order,
+) error {
+	if len(orders) == 0 {
+		return nil
+	}
+
+	var builder strings.Builder
+	args := make([]any, 0, len(orders)*3)
+	seenOrderIDs := make(map[string]struct{}, len(orders))
+
+	builder.WriteString(`
+		UPDATE orders AS stored_order
 		SET
-			remaining_quantity = $2,
-			status = $3,
+			remaining_quantity = updated_order.remaining_quantity,
+			status = updated_order.status,
 			updated_at = now()
-		WHERE id = $1
-	`
+		FROM (
+			VALUES
+	`)
 
-	_, err := store.pool.Exec(
+	for orderIndex, order := range orders {
+		if _, exists := seenOrderIDs[order.ID]; exists {
+			return fmt.Errorf(
+				"duplicate order ID in update: %s",
+				order.ID,
+			)
+		}
+		seenOrderIDs[order.ID] = struct{}{}
+
+		if orderIndex > 0 {
+			builder.WriteString(",")
+		}
+
+		base := orderIndex*3 + 1
+
+		builder.WriteString(fmt.Sprintf(
+			"($%d::text, $%d::bigint, $%d::text)",
+			base,
+			base+1,
+			base+2,
+		))
+
+		args = append(
+			args,
+			order.ID,
+			order.RemainingQuantity,
+			order.Status,
+		)
+	}
+
+	builder.WriteString(`
+		) AS updated_order (
+			id,
+			remaining_quantity,
+			status
+		)
+		WHERE stored_order.id = updated_order.id
+	`)
+
+	commandTag, err := store.pool.Exec(
 		ctx,
-		query,
-		order.ID,
-		order.RemainingQuantity,
-		order.Status,
+		builder.String(),
+		args...,
 	)
+	if err != nil {
+		return err
+	}
 
-	return err
+	if commandTag.RowsAffected() != int64(len(orders)) {
+		return fmt.Errorf(
+			"expected to update %d orders, updated %d",
+			len(orders),
+			commandTag.RowsAffected(),
+		)
+	}
+
+	return nil
 }
 
 func (store *PostgresStore) GetOrderByID(ctx context.Context, id string, symbol domain.Symbol) (domain.Order, error) {

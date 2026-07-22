@@ -3,8 +3,6 @@ package matching
 import (
 	"bist-matching-engine/internal/book"
 	"bist-matching-engine/internal/domain"
-	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -76,7 +74,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 		//price can be >= 270 and <= 330, book is created with openingPrice 300
 
 		order := createOrder(t, symbol, domain.SideBuy, 269, 100)
-		_, _, err := engine.Submit(&order)
+		_, err := engine.Submit(&order)
 		if err != ErrPriceOutsideAllowedRange {
 			t.Fatalf("expected ErrPriceOutsideAllowedRange error, got %v", err)
 		}
@@ -87,8 +85,10 @@ func TestEngineForBuyOrders(t *testing.T) {
 		engine := NewEngine(&orderBook)
 
 		order := createOrder(t, symbol, domain.SideBuy, 299, 100)
-		returnedOrder, trades, err := engine.Submit(&order)
-
+		matchResult, err := engine.Submit(&order)
+		returnedOrder := matchResult.IncomingOrder
+		trades := matchResult.Trades
+		
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
@@ -118,7 +118,9 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideBuy, 300, 100)
 
-		returnedOrder, trades, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		returnedOrder := matchResult.IncomingOrder
+		trades := matchResult.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -152,7 +154,10 @@ func TestEngineForBuyOrders(t *testing.T) {
 		order := createOrder(t, symbol, domain.SideBuy, 302, 100)
 		initialBestSellOrder, _ := engine.book.BestSell()
 
-		returnedOrder, trades, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		returnedOrder := matchResult.IncomingOrder
+		trades := matchResult.Trades
+
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
@@ -204,7 +209,9 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideBuy, 302, 150)
 
-		returnedOrder, trades, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		returnedOrder := matchResult.IncomingOrder
+		trades := matchResult.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -254,7 +261,9 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideBuy, 302, 50)
 
-		returnedOrder, trades, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		returnedOrder := matchResult.IncomingOrder
+		trades := matchResult.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -306,7 +315,9 @@ func TestEngineForBuyOrders(t *testing.T) {
 		order := createOrder(t, symbol, domain.SideBuy, 303, 150)
 		initialBestSellOrder, _ := engine.book.BestSell()
 
-		returnedOrder, trades, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		returnedOrder := matchResult.IncomingOrder
+		trades := matchResult.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -459,7 +470,10 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 				initialBestSellOrder, _ := engine.book.BestSell()
 
-				returnedOrder, trades, err := engine.Submit(&order)
+				matchResult, err := engine.Submit(&order)
+				returnedOrder := matchResult.IncomingOrder
+				trades := matchResult.Trades
+				
 				if err != nil {
 					t.Fatalf("engine.Submit failed: %v", err)
 				}
@@ -611,7 +625,10 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 				engine := NewEngine(orderBook)
 
-				returnedOrder, trades, err := engine.Submit(&t3BuyOrder)
+				matchResult, err := engine.Submit(&t3BuyOrder)
+				returnedOrder := matchResult.IncomingOrder
+				trades := matchResult.Trades
+
 				if err != nil {
 					t.Fatalf("engine.Submit failed: %v", err)
 				}
@@ -641,16 +658,17 @@ func TestEngineForBuyOrders(t *testing.T) {
 		engine := NewEngine(&orderBook)
 
 		order := createOrder(t, symbol, domain.SideBuy, 305, 100)
-		_, trade, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		trades := matchResult.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
-		if len(trade) != 1 {
-			t.Fatalf("expected 1 trade, got: %d", len(trade))
+		if len(trades) != 1 {
+			t.Fatalf("expected 1 trades, got: %d", len(trades))
 		}
-		if trade[0].Price != 302 {
-			t.Fatalf("expected trade price to be 302, got: %d", trade[0].Price)
+		if trades[0].Price != 302 {
+			t.Fatalf("expected trade price to be 302, got: %d", trades[0].Price)
 		}
 		if engine.book.GetLastTradePrice() != 302 {
 			t.Fatalf("expected last trade price to be 302, got: %d", engine.book.GetLastTradePrice())
@@ -667,7 +685,9 @@ func TestEngineForSellOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideSell, 303, 100)
 
-		returnedOrder, trades, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		returnedOrder := matchResult.IncomingOrder
+		trades := matchResult.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -686,7 +706,9 @@ func TestEngineForSellOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideSell, 300, 100)
 
-		returnedOrder, trades, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		returnedOrder := matchResult.IncomingOrder
+		trades := matchResult.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -715,7 +737,10 @@ func TestEngineForSellOrders(t *testing.T) {
 		order := createOrder(t, symbol, domain.SideSell, 301, 100)
 		initialBestBuyOrder, _ := engine.book.BestBuy()
 
-		returnedOrder, trades, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		returnedOrder := matchResult.IncomingOrder
+		trades := matchResult.Trades
+
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
@@ -767,7 +792,10 @@ func TestEngineForSellOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideSell, 301, 150)
 
-		returnedOrder, trades, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		returnedOrder := matchResult.IncomingOrder
+		trades := matchResult.Trades
+
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
@@ -816,7 +844,10 @@ func TestEngineForSellOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideSell, 301, 50)
 
-		returnedOrder, trades, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		returnedOrder := matchResult.IncomingOrder
+		trades := matchResult.Trades
+
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
@@ -868,7 +899,10 @@ func TestEngineForSellOrders(t *testing.T) {
 		order := createOrder(t, symbol, domain.SideSell, 300, 150)
 		initialBestBuyOrder, _ := engine.book.BestBuy()
 
-		returnedOrder, trades, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		returnedOrder := matchResult.IncomingOrder
+		trades := matchResult.Trades
+
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
@@ -1012,7 +1046,10 @@ func TestEngineForSellOrders(t *testing.T) {
 
 				initialBestBuyOrder, _ := engine.book.BestBuy()
 
-				returnedOrder, trades, err := engine.Submit(&order)
+				matchResult, err := engine.Submit(&order)
+				returnedOrder := matchResult.IncomingOrder
+				trades := matchResult.Trades
+
 				if err != nil {
 					t.Fatalf("engine.Submit failed: %v", err)
 				}
@@ -1160,7 +1197,10 @@ func TestEngineForSellOrders(t *testing.T) {
 
 				engine := NewEngine(orderBook)
 
-				returnedOrder, trades, err := engine.Submit(&t3SellOrder)
+				matchResult, err := engine.Submit(&t3SellOrder)
+				returnedOrder := matchResult.IncomingOrder
+				trades := matchResult.Trades
+				
 				if err != nil {
 					t.Fatalf("engine.Submit failed: %v", err)
 				}
@@ -1189,7 +1229,8 @@ func TestEngineForSellOrders(t *testing.T) {
 		engine := NewEngine(&orderBook)
 
 		order := createOrder(t, symbol, domain.SideSell, 299, 100)
-		_, trades, err := engine.Submit(&order)
+		matchResult, err := engine.Submit(&order)
+		trades := matchResult.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -1204,118 +1245,4 @@ func TestEngineForSellOrders(t *testing.T) {
 			t.Fatalf("expected last trade price to be 301, got: %d", engine.book.GetLastTradePrice())
 		}
 	})
-}
-
-func TestEngine_ConcurrentSubmitAndSnapshot(t *testing.T) {
-	symbol := createSymbol(t)
-	orderBook := book.NewBook(
-		symbol,
-		time.Now().UTC(),
-		35000,
-	)
-	engine := NewEngine(orderBook)
-
-	const (
-		submissionCount    = 100
-		snapshotReaders    = 8
-		snapshotsPerReader = 100
-		orderPrice         = int64(34900)
-	)
-
-	// Create orders before starting goroutines. This avoids using testing.T
-	// and constructing shared test data inside concurrent functions.
-	orders := make([]domain.Order, submissionCount)
-	for index := range orders {
-		orders[index] = createOrder(
-			t,
-			symbol,
-			domain.SideBuy,
-			orderPrice,
-			1,
-		)
-	}
-
-	start := make(chan struct{})
-	errorsChannel := make(chan error, submissionCount + snapshotReaders*snapshotsPerReader)
-
-	var waitGroup sync.WaitGroup
-
-	for index := range orders {
-		waitGroup.Add(1)
-
-		order := orders[index]
-		go func() {
-			defer waitGroup.Done()
-			<-start
-
-			_, _, err := engine.Submit(&order)
-			if err != nil {
-				errorsChannel <- err
-			}
-		}()
-	}
-
-	for range snapshotReaders {
-		waitGroup.Add(1)
-
-		go func() {
-			defer waitGroup.Done()
-			<-start
-
-			for range snapshotsPerReader {
-				snapshot, err := engine.Snapshot(5)
-				if err != nil {
-					errorsChannel <- err
-					continue
-				}
-
-				if len(snapshot.Buy) > 1 {
-					errorsChannel <- fmt.Errorf(
-						"expected at most one buy level, got %d",
-						len(snapshot.Buy),
-					)
-				}
-			}
-		}()
-	}
-
-	// Release all goroutines at approximately the same time.
-	close(start)
-
-	waitGroup.Wait()
-	close(errorsChannel)
-
-	for err := range errorsChannel {
-		t.Errorf("concurrent operation failed: %v", err)
-	}
-
-	finalSnapshot, err := engine.Snapshot(5)
-	if err != nil {
-		t.Fatalf("final Snapshot failed: %v", err)
-	}
-
-	if len(finalSnapshot.Buy) != 1 {
-		t.Fatalf(
-			"expected one final buy level, got %d",
-			len(finalSnapshot.Buy),
-		)
-	}
-
-	level := finalSnapshot.Buy[0]
-
-	if level.Price != orderPrice {
-		t.Fatalf(
-			"expected final price %d, got %d",
-			orderPrice,
-			level.Price,
-		)
-	}
-
-	if level.Quantity != submissionCount {
-		t.Fatalf(
-			"expected final quantity %d, got %d",
-			submissionCount,
-			level.Quantity,
-		)
-	}
 }

@@ -112,18 +112,18 @@ func newTestStore(t *testing.T) (*PostgresStore, context.Context) {
 func TestPostgresStore_InsertAndGetOrderByID(t *testing.T) {
 	store, ctx := newTestStore(t)
 
-	symbol, err := domain.NewSymbol("ASELS", 1)
-	if err != nil {
-		t.Fatalf("NewSymbol failed: %v", err)
-	}
-
 	var testParticipantId int64 = 1
+
+	initialization, err := store.GetBookInitialization(ctx, "ASELS")
+	if err != nil {
+		t.Fatalf("store.GetBookInitialization failed: %v", err)
+	}
 
 	order, err := domain.NewOrder(
 		uuid.NewString(),
 		testParticipantId,
-		symbol,
-		time.Now().UTC(),
+		initialization.Symbol,
+		initialization.SessionDate,
 		domain.SideBuy,
 		1050,
 		100,
@@ -137,7 +137,7 @@ func TestPostgresStore_InsertAndGetOrderByID(t *testing.T) {
 		t.Fatalf("InsertOrder failed: %v", err)
 	}
 
-	got, err := store.GetOrderByID(ctx, order.ID, symbol)
+	got, err := store.GetOrderByID(ctx, order.ID, initialization.Symbol)
 	if err != nil {
 		t.Fatalf("GetOrderByID failed: %v", err)
 	}
@@ -171,18 +171,18 @@ func TestPostgresStore_InsertAndGetOrderByID(t *testing.T) {
 func TestPostgresStore_UpdateOrder(t *testing.T) {
 	store, ctx := newTestStore(t)
 
-	symbol, err := domain.NewSymbol("ASELS", 1)
-	if err != nil {
-		t.Fatalf("NewSymbol failed: %v", err)
-	}
-
 	var testParticipantId int64 = 1
+
+	initialization, err := store.GetBookInitialization(ctx, "ASELS")
+	if err != nil {
+		t.Fatalf("store.GetBookInitialization failed: %v", err)
+	}
 
 	order, err := domain.NewOrder(
 		uuid.NewString(),
 		testParticipantId,
-		symbol,
-		time.Now().UTC(),
+		initialization.Symbol,
+		initialization.SessionDate,
 		domain.SideSell,
 		1060,
 		100,
@@ -199,14 +199,14 @@ func TestPostgresStore_UpdateOrder(t *testing.T) {
 	order.RemainingQuantity = 40
 	order.Status = domain.StatusPartiallyFilled
 
-	if err := store.UpdateOrder(ctx, order); err != nil {
+	if err := store.UpdateOrders(ctx, []domain.Order{order}); err != nil {
 		t.Fatalf("UpdateOrder failed: %v", err)
 	}
 	t.Cleanup(func() {
 		store.pool.Exec(ctx, "DELETE FROM orders WHERE id = $1", order.ID)
 	})
 
-	got, err := store.GetOrderByID(ctx, order.ID, symbol)
+	got, err := store.GetOrderByID(ctx, order.ID, initialization.Symbol)
 	if err != nil {
 		t.Fatalf("GetOrderByID failed: %v", err)
 	}

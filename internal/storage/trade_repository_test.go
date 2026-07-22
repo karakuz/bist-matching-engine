@@ -99,11 +99,12 @@ func TestPostgresStore_InsertTrade(t *testing.T) {
 
 	order := createOrder(t, symbol, domain.SideBuy, 303, 150)
 
-	_, trades, err := engine.Submit(&order)
+	matchResult, err := engine.Submit(&order)
 	if err != nil {
 		t.Fatalf("engine.Submit failed: %v", err)
 	}
 
+	trades := matchResult.Trades
 	err = store.InsertTrades(ctx, trades)
 	if err != nil {
 		t.Fatalf("InsertTrades failed: %v", err)

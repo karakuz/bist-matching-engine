@@ -143,28 +143,33 @@ func (book *Book) removeBestBuy() {
 	}
 }
 
-func (book *Book) ReduceBestBuy(quantity int64) {
+func (book *Book) ReduceBestBuy(quantity int64) (domain.Order, bool) {
 	bestBuyOrder, exists := book.BestBuy()
 	if !exists {
-		return
+		return Order{}, false
 	}
 
 	level := book.buys[bestBuyOrder.Price]
 	if len(level) == 0 {
-		return
+		return Order{}, false
 	}
 	firstBid := &level[0]
-	quantityCanBeReduced := min(firstBid.RemainingQuantity, quantity)
-	firstBid.RemainingQuantity -= quantityCanBeReduced
+	quantityToReduce := min(firstBid.RemainingQuantity, quantity)
+	firstBid.RemainingQuantity -= quantityToReduce
 
 	if firstBid.RemainingQuantity == 0 {
 		firstBid.Status = domain.StatusFilled
+		updatedOrder := *firstBid
+
 		book.removeBestBuy()
-		return
+
+		return updatedOrder, true
 	}
 
 	level[0].Status = domain.StatusPartiallyFilled
 	book.buys[bestBuyOrder.Price] = level
+
+	return *firstBid, true
 }
 
 func (book *Book) BestSell() (domain.Order, bool) {
@@ -200,28 +205,32 @@ func (book *Book) removeBestSell() {
 	}
 }
 
-func (book *Book) ReduceBestSell(quantity int64) {
+func (book *Book) ReduceBestSell(quantity int64) (domain.Order, bool) {
 	bestSellOrder, exists := book.BestSell()
 	if !exists {
-		return
+		return domain.Order{}, false
 	}
 
 	level := book.sells[bestSellOrder.Price]
 	if len(level) == 0 {
-		return
+		return domain.Order{}, false
 	}
 	firstAsk := &level[0]
-	quantityCanBeReduced := min(firstAsk.RemainingQuantity, quantity)
-	firstAsk.RemainingQuantity -= quantityCanBeReduced
+	quantityToReduce := min(firstAsk.RemainingQuantity, quantity)
+	firstAsk.RemainingQuantity -= quantityToReduce
 
 	if firstAsk.RemainingQuantity == 0 {
 		firstAsk.Status = domain.StatusFilled
+		updatedOrder := *firstAsk
+
 		book.removeBestSell()
-		return
+		return updatedOrder, true
 	}
 
 	firstAsk.Status = domain.StatusPartiallyFilled
 	book.sells[bestSellOrder.Price] = level
+
+	return *firstAsk, true
 }
 
 func calculatePriceLimits(openingPrice, tickSize int64) (upper, lower int64) {
