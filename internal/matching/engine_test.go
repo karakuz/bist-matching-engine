@@ -88,7 +88,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 		matchResult, err := engine.Submit(&order)
 		returnedOrder := matchResult.IncomingOrder
 		trades := matchResult.Trades
-		
+
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
@@ -473,7 +473,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 				matchResult, err := engine.Submit(&order)
 				returnedOrder := matchResult.IncomingOrder
 				trades := matchResult.Trades
-				
+
 				if err != nil {
 					t.Fatalf("engine.Submit failed: %v", err)
 				}
@@ -1200,7 +1200,7 @@ func TestEngineForSellOrders(t *testing.T) {
 				matchResult, err := engine.Submit(&t3SellOrder)
 				returnedOrder := matchResult.IncomingOrder
 				trades := matchResult.Trades
-				
+
 				if err != nil {
 					t.Fatalf("engine.Submit failed: %v", err)
 				}
@@ -1245,4 +1245,169 @@ func TestEngineForSellOrders(t *testing.T) {
 			t.Fatalf("expected last trade price to be 301, got: %d", engine.book.GetLastTradePrice())
 		}
 	})
+}
+
+func TestEngineMatchResultContainsRestingOrderUpdates(t *testing.T) {
+	tests := []struct {
+		name                    string
+		restingSide             domain.Side
+		restingPrices           []int64
+		incomingSide            domain.Side
+		incomingPrice           int64
+		incomingQuantity        int64
+		wantRemainingQuantities []int64
+		wantStatuses            []domain.OrderStatus
+	}{
+		{
+			name:                    "buy fully fills resting sell",
+			restingSide:             domain.SideSell,
+			restingPrices:           []int64{300},
+			incomingSide:            domain.SideBuy,
+			incomingPrice:           300,
+			incomingQuantity:        100,
+			wantRemainingQuantities: []int64{0},
+			wantStatuses:            []domain.OrderStatus{domain.StatusFilled},
+		},
+		{
+			name:                    "buy partially fills resting sell",
+			restingSide:             domain.SideSell,
+			restingPrices:           []int64{300},
+			incomingSide:            domain.SideBuy,
+			incomingPrice:           300,
+			incomingQuantity:        40,
+			wantRemainingQuantities: []int64{60},
+			wantStatuses:            []domain.OrderStatus{domain.StatusPartiallyFilled},
+		},
+		{
+			name:                    "buy updates resting sells in price-time order",
+			restingSide:             domain.SideSell,
+			restingPrices:           []int64{300, 301, 301},
+			incomingSide:            domain.SideBuy,
+			incomingPrice:           301,
+			incomingQuantity:        250,
+			wantRemainingQuantities: []int64{0, 0, 50},
+			wantStatuses: []domain.OrderStatus{
+				domain.StatusFilled,
+				domain.StatusFilled,
+				domain.StatusPartiallyFilled,
+			},
+		},
+		{
+			name:                    "sell fully fills resting buy",
+			restingSide:             domain.SideBuy,
+			restingPrices:           []int64{300},
+			incomingSide:            domain.SideSell,
+			incomingPrice:           300,
+			incomingQuantity:        100,
+			wantRemainingQuantities: []int64{0},
+			wantStatuses:            []domain.OrderStatus{domain.StatusFilled},
+		},
+		{
+			name:                    "sell partially fills resting buy",
+			restingSide:             domain.SideBuy,
+			restingPrices:           []int64{300},
+			incomingSide:            domain.SideSell,
+			incomingPrice:           300,
+			incomingQuantity:        40,
+			wantRemainingQuantities: []int64{60},
+			wantStatuses:            []domain.OrderStatus{domain.StatusPartiallyFilled},
+		},
+		{
+			name:                    "sell updates resting buys in price-time order",
+			restingSide:             domain.SideBuy,
+			restingPrices:           []int64{300, 299, 299},
+			incomingSide:            domain.SideSell,
+			incomingPrice:           299,
+			incomingQuantity:        250,
+			wantRemainingQuantities: []int64{0, 0, 50},
+			wantStatuses: []domain.OrderStatus{
+				domain.StatusFilled,
+				domain.StatusFilled,
+				domain.StatusPartiallyFilled,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			symbol := createSymbol(t)
+			orderBook := book.NewBook(
+				symbol,
+				time.Now().UTC(),
+				300,
+			)
+
+			restingOrders := make([]domain.Order, 0, len(test.restingPrices))
+			for _, price := range test.restingPrices {
+				restingOrder := createOrder(
+					t,
+					symbol,
+					test.restingSide,
+					price,
+					100,
+				)
+				restingOrders = append(restingOrders, restingOrder)
+
+				if err := orderBook.Add(restingOrder); err != nil {
+					t.Fatalf("adding resting order failed: %v", err)
+				}
+			}
+
+			engine := NewEngine(orderBook)
+			incomingOrder := createOrder(
+				t,
+				symbol,
+				test.incomingSide,
+				test.incomingPrice,
+				test.incomingQuantity,
+			)
+
+			matchResult, err := engine.Submit(&incomingOrder)
+			if err != nil {
+				t.Fatalf("engine.Submit failed: %v", err)
+			}
+
+			if len(matchResult.RestingOrderUpdates) != len(restingOrders) {
+				t.Fatalf(
+					"expected %d resting order updates, got %d",
+					len(restingOrders),
+					len(matchResult.RestingOrderUpdates),
+				)
+			}
+
+			for updateIndex, update := range matchResult.RestingOrderUpdates {
+				wantOrder := restingOrders[updateIndex]
+
+				if update.ID != wantOrder.ID {
+					t.Fatalf(
+						"update %d: expected resting order ID %s, got %s",
+						updateIndex,
+						wantOrder.ID,
+						update.ID,
+					)
+				}
+
+				wantRemainingQuantity :=
+					test.wantRemainingQuantities[updateIndex]
+				if update.RemainingQuantity != wantRemainingQuantity {
+					t.Fatalf(
+						"update %d: expected remaining quantity %d, got %d",
+						updateIndex,
+						wantRemainingQuantity,
+						update.RemainingQuantity,
+					)
+				}
+
+				wantStatus := test.wantStatuses[updateIndex]
+				if update.Status != wantStatus {
+					t.Fatalf(
+						"update %d: expected status %s, got %s",
+						updateIndex,
+						wantStatus,
+						update.Status,
+					)
+				}
+			}
+		})
+	}
 }
