@@ -3,66 +3,50 @@ package main
 import (
 	"context"
 	"log"
+	"os"
+	"fmt"
 
-	"bist-matching-engine/internal/book"
 	httptransport "bist-matching-engine/internal/http"
-	"bist-matching-engine/internal/matching"
 	"bist-matching-engine/internal/storage"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Printf("application failed: %v", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	ctx := context.Background()
+
 	pool, err := storage.NewPostgresPoolFromEnv(ctx)
 	if err != nil {
-		log.Fatalf("failed to create postgres pool: %v", err)
+		return fmt.Errorf(
+			"create postgres pool: %w",
+			err,
+		)
 	}
 	defer pool.Close()
 
 	store := storage.NewPostgresStore(pool)
 
-	initializations, err := store.GetBookInitializations(ctx)
+	engines, err := initializeEngines(ctx, store)
 	if err != nil {
-		log.Fatalf("could not fetch book initializations, err: %v", err)
-	}
-
-	engines := make(map[string]*matching.Engine, len(initializations))
-
-	for _, initialization := range initializations {
-		orderBook := book.NewBook(
-			initialization.Symbol,
-			initialization.SessionDate,
-			initialization.OpeningPrice,
+		return fmt.Errorf(
+			"initialize engines: %w",
+			err,
 		)
-
-		restingOrders, err := store.GetRestingOrdersForSession(
-			ctx,
-			initialization.Symbol,
-			initialization.SessionDate,
-		)
-		if err != nil {
-			log.Fatalf(
-				"could not load resting orders for %s: %v",
-				initialization.Symbol.Code,
-				err,
-			)
-		}
-
-		if err := orderBook.Add(restingOrders...); err != nil {
-			log.Fatalf(
-				"could not restore order book for %s: %v",
-				initialization.Symbol.Code,
-				err,
-			)
-		}
-
-		var code string = initialization.Symbol.Code
-		engines[code] = matching.NewEngine(orderBook)
 	}
 
 	router := gin.Default()
 	httptransport.RegisterRoutes(router, store, engines)
 
-	log.Fatal(router.Run(":8080"))
+	if err := router.Run(":8080"); err != nil {
+		return fmt.Errorf("run HTTP server: %w", err)
+	}
+
+	return nil
 }
