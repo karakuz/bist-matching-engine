@@ -27,7 +27,7 @@ type Order struct {
 	ID                string
 	ParticipantID     int64
 	Symbol            Symbol
-	SessionDate		  time.Time
+	SessionDate       time.Time
 	Side              Side
 	Price             int64
 	Quantity          int64

@@ -19,7 +19,7 @@ var (
 
 type Engine struct {
 	mutex sync.RWMutex
-	book *book.Book
+	book  *book.Book
 }
 
 func NewEngine(orderBook *book.Book) *Engine {
@@ -74,7 +74,7 @@ func submitBid(engine *Engine, order *domain.Order) (MatchResult, error) {
 				order.Status = domain.StatusPartiallyFilled
 			}
 
-			updatedRestingOrder, exists :=engine.book.ReduceBestSell(tradeQty)
+			updatedRestingOrder, exists := engine.book.ReduceBestSell(tradeQty)
 			if !exists {
 				return matchResult, ErrUnhandledCase
 			}
@@ -100,7 +100,7 @@ func submitBid(engine *Engine, order *domain.Order) (MatchResult, error) {
 
 			trade := newTrade(engine, order, bestSellOrder, tradeQty)
 			matchResult.Trades = append(matchResult.Trades, trade)
-			
+
 			updatedRestingOrder, exists := engine.book.ReduceBestSell(tradeQty)
 			if !exists {
 				return matchResult, ErrUnhandledCase
@@ -212,18 +212,22 @@ type MatchResult struct {
 	Trades              []domain.Trade
 }
 
-func newMatchResult(order *domain.Order) MatchResult{
+func newMatchResult(order *domain.Order) MatchResult {
 	return MatchResult{
-		IncomingOrder: order,
+		IncomingOrder:       order,
 		RestingOrderUpdates: make([]domain.Order, 0),
-		Trades: make([]domain.Trade, 0),
+		Trades:              make([]domain.Trade, 0),
 	}
 }
 
-func (engine *Engine) Submit(order *domain.Order) (MatchResult, error) { //(*domain.Order, []domain.Trade, error)
+func (engine *Engine) Submit(order *domain.Order) (MatchResult, error) {
 	engine.mutex.Lock()
 	defer engine.mutex.Unlock()
 
+	return engine.submit(order)
+}
+
+func (engine *Engine) submit(order *domain.Order) (MatchResult, error) {
 	matchResult := newMatchResult(order)
 
 	if order.Symbol.Code != engine.book.Symbol.Code {
@@ -237,20 +241,24 @@ func (engine *Engine) Submit(order *domain.Order) (MatchResult, error) { //(*dom
 		return matchResult, ErrPriceOutsideAllowedRange
 	}
 
-	if order.Side == domain.SideBuy {
+	switch order.Side {
+	case domain.SideBuy:
 		return submitBid(engine, order)
-	} else if order.Side == domain.SideSell {
+	case domain.SideSell:
 		return submitAsk(engine, order)
 	}
 
 	return matchResult, ErrUnhandledCase
 }
 
-func (engine *Engine) SessionDate() time.Time{
+func (engine *Engine) SessionDate() time.Time {
+	engine.mutex.RLock()
+	defer engine.mutex.RUnlock()
+
 	return engine.book.SessionDate
 }
 
-func (engine *Engine) Snapshot(levels int64) (book.Snapshot, error){
+func (engine *Engine) Snapshot(levels int64) (book.Snapshot, error) {
 	engine.mutex.RLock()
 	defer engine.mutex.RUnlock()
 

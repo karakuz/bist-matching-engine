@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"bist-matching-engine/internal/book"
@@ -14,6 +15,10 @@ import (
 )
 
 func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
+	if os.Getenv("BME_PG_CONNSTRING") == "" {
+		t.Skip("BME_PG_CONNSTRING is not set")
+	}
+
 	ctx := context.Background()
 
 	pool, err := storage.NewPostgresPoolFromEnv(ctx)

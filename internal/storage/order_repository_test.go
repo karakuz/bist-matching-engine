@@ -112,8 +112,6 @@ func newTestStore(t *testing.T) (*PostgresStore, context.Context) {
 func TestPostgresStore_InsertAndGetOrderByID(t *testing.T) {
 	store, ctx := newTestStore(t)
 
-	var testParticipantId int64 = 1
-
 	initialization, err := store.GetBookInitialization(ctx, "ASELS")
 	if err != nil {
 		t.Fatalf("store.GetBookInitialization failed: %v", err)
@@ -170,8 +168,6 @@ func TestPostgresStore_InsertAndGetOrderByID(t *testing.T) {
 
 func TestPostgresStore_UpdateOrder(t *testing.T) {
 	store, ctx := newTestStore(t)
-
-	var testParticipantId int64 = 1
 
 	initialization, err := store.GetBookInitialization(ctx, "ASELS")
 	if err != nil {
