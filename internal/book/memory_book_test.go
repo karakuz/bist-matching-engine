@@ -308,3 +308,196 @@ func TestMemoryBookSnapshot_RejectsNonPositiveLevels(t *testing.T) {
 		})
 	}
 }
+
+func TestMemoryBookMatchCandidates(t *testing.T) {
+	symbol, err := domain.NewSymbol("ASELS", 10)
+	if err != nil {
+		t.Fatalf("NewSymbol failed: %v", err)
+	}
+
+	t.Run("BUY returns only required SELL orders in price-time order", func(t *testing.T) {
+		orderBook := NewBook(symbol, time.Now().UTC(), 1000)
+
+		firstAt1000 := createOrder(t, symbol, domain.SideSell, 1000, 40)
+		at990 := createOrder(t, symbol, domain.SideSell, 990, 30)
+		secondAt1000 := createOrder(t, symbol, domain.SideSell, 1000, 50)
+		at1010 := createOrder(t, symbol, domain.SideSell, 1010, 60)
+		aboveLimit := createOrder(t, symbol, domain.SideSell, 1020, 70)
+
+		if err := orderBook.Add(
+			firstAt1000,
+			at990,
+			secondAt1000,
+			at1010,
+			aboveLimit,
+		); err != nil {
+			t.Fatalf("Add failed: %v", err)
+		}
+
+		incoming := createOrder(t, symbol, domain.SideBuy, 1010, 120)
+
+		candidates, err := orderBook.MatchCandidates(incoming)
+		if err != nil {
+			t.Fatalf("MatchCandidates failed: %v", err)
+		}
+
+		wantIDs := []string{
+			at990.ID,
+			firstAt1000.ID,
+			secondAt1000.ID,
+		}
+
+		if len(candidates) != len(wantIDs) {
+			t.Fatalf(
+				"expected %d candidates, got %d",
+				len(wantIDs),
+				len(candidates),
+			)
+		}
+
+		for index, wantID := range wantIDs {
+			if candidates[index].ID != wantID {
+				t.Fatalf(
+					"candidate %d: expected order ID %s, got %s",
+					index,
+					wantID,
+					candidates[index].ID,
+				)
+			}
+		}
+	})
+
+	t.Run("SELL returns only required BUY orders in price-time order", func(t *testing.T) {
+		orderBook := NewBook(symbol, time.Now().UTC(), 1000)
+
+		firstAt1000 := createOrder(t, symbol, domain.SideBuy, 1000, 40)
+		at1010 := createOrder(t, symbol, domain.SideBuy, 1010, 30)
+		secondAt1000 := createOrder(t, symbol, domain.SideBuy, 1000, 50)
+		belowLimit := createOrder(t, symbol, domain.SideBuy, 990, 60)
+
+		if err := orderBook.Add(
+			firstAt1000,
+			at1010,
+			secondAt1000,
+			belowLimit,
+		); err != nil {
+			t.Fatalf("Add failed: %v", err)
+		}
+
+		incoming := createOrder(t, symbol, domain.SideSell, 1000, 100)
+
+		candidates, err := orderBook.MatchCandidates(incoming)
+		if err != nil {
+			t.Fatalf("MatchCandidates failed: %v", err)
+		}
+
+		wantIDs := []string{
+			at1010.ID,
+			firstAt1000.ID,
+			secondAt1000.ID,
+		}
+
+		if len(candidates) != len(wantIDs) {
+			t.Fatalf(
+				"expected %d candidates, got %d",
+				len(wantIDs),
+				len(candidates),
+			)
+		}
+
+		for index, wantID := range wantIDs {
+			if candidates[index].ID != wantID {
+				t.Fatalf(
+					"candidate %d: expected order ID %s, got %s",
+					index,
+					wantID,
+					candidates[index].ID,
+				)
+			}
+		}
+	})
+
+	t.Run("skips exhausted resting orders", func(t *testing.T) {
+		orderBook := NewBook(symbol, time.Now().UTC(), 1000)
+
+		exhausted := createOrder(t, symbol, domain.SideSell, 1000, 20)
+		exhausted.RemainingQuantity = 0
+		exhausted.Status = domain.StatusFilled
+
+		open := createOrder(t, symbol, domain.SideSell, 1000, 20)
+
+		if err := orderBook.Add(exhausted, open); err != nil {
+			t.Fatalf("Add failed: %v", err)
+		}
+
+		incoming := createOrder(t, symbol, domain.SideBuy, 1000, 10)
+
+		candidates, err := orderBook.MatchCandidates(incoming)
+		if err != nil {
+			t.Fatalf("MatchCandidates failed: %v", err)
+		}
+
+		if len(candidates) != 1 {
+			t.Fatalf("expected 1 candidate, got %d", len(candidates))
+		}
+		if candidates[0].ID != open.ID {
+			t.Fatalf(
+				"expected open order ID %s, got %s",
+				open.ID,
+				candidates[0].ID,
+			)
+		}
+	})
+
+	t.Run("returns order copies without mutating the book", func(t *testing.T) {
+		orderBook := NewBook(symbol, time.Now().UTC(), 1000)
+		resting := createOrder(t, symbol, domain.SideSell, 1000, 50)
+
+		if err := orderBook.Add(resting); err != nil {
+			t.Fatalf("Add failed: %v", err)
+		}
+
+		incoming := createOrder(t, symbol, domain.SideBuy, 1000, 10)
+
+		candidates, err := orderBook.MatchCandidates(incoming)
+		if err != nil {
+			t.Fatalf("MatchCandidates failed: %v", err)
+		}
+		if len(candidates) != 1 {
+			t.Fatalf("expected 1 candidate, got %d", len(candidates))
+		}
+
+		candidates[0].RemainingQuantity = 0
+		candidates[0].Status = domain.StatusFilled
+
+		stored := orderBook.sells[resting.Price][0]
+		if stored.RemainingQuantity != resting.RemainingQuantity {
+			t.Fatalf(
+				"expected stored remaining quantity %d, got %d",
+				resting.RemainingQuantity,
+				stored.RemainingQuantity,
+			)
+		}
+		if stored.Status != resting.Status {
+			t.Fatalf(
+				"expected stored status %s, got %s",
+				resting.Status,
+				stored.Status,
+			)
+		}
+	})
+
+	t.Run("rejects invalid incoming side", func(t *testing.T) {
+		orderBook := NewBook(symbol, time.Now().UTC(), 1000)
+		incoming := createOrder(t, symbol, domain.SideBuy, 1000, 10)
+		incoming.Side = domain.Side("HOLD")
+
+		_, err := orderBook.MatchCandidates(incoming)
+		if !errors.Is(err, domain.ErrInvalidSide) {
+			t.Fatalf(
+				"expected ErrInvalidSide, got %v",
+				err,
+			)
+		}
+	})
+}

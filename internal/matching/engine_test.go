@@ -1,10 +1,12 @@
 package matching
 
 import (
-	"bist-matching-engine/internal/book"
-	"bist-matching-engine/internal/domain"
+	"reflect"
 	"testing"
 	"time"
+
+	"bist-matching-engine/internal/book"
+	"bist-matching-engine/internal/domain"
 
 	"github.com/google/uuid"
 )
@@ -1409,5 +1411,250 @@ func TestEngineMatchResultContainsRestingOrderUpdates(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestEnginePrepareDoesNotMutateRestingOrders(t *testing.T) {
+	symbol := createSymbol(t)
+	orderBook := book.NewBook(symbol, time.Now().UTC(), 300)
+
+	firstSell := createOrder(t, symbol, domain.SideSell, 298, 40)
+	secondSell := createOrder(t, symbol, domain.SideSell, 299, 80)
+
+	if err := orderBook.Add(firstSell, secondSell); err != nil {
+		t.Fatalf("Add failed: %v", err)
+	}
+
+	engine := NewEngine(orderBook)
+	incomingBuy := createOrder(t, symbol, domain.SideBuy, 300, 100)
+
+	before, err := engine.Snapshot(10)
+	if err != nil {
+		t.Fatalf("Snapshot before Prepare failed: %v", err)
+	}
+
+	plan, err := engine.Prepare(incomingBuy)
+	if err != nil {
+		t.Fatalf("Prepare failed: %v", err)
+	}
+
+	after, err := engine.Snapshot(10)
+	if err != nil {
+		t.Fatalf("Snapshot after Prepare failed: %v", err)
+	}
+
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("Prepare mutated the book: before=%#v after=%#v", before, after)
+	}
+
+	if plan.IncomingOrder.Status != domain.StatusFilled {
+		t.Fatalf("expected incoming FILLED, got %s", plan.IncomingOrder.Status)
+	}
+
+	if plan.IncomingOrder.RemainingQuantity != 0 {
+		t.Fatalf("expected incoming remaining quantity 0, got %d", plan.IncomingOrder.RemainingQuantity)
+	}
+
+	if len(plan.RestingOrderUpdates) != 2 {
+		t.Fatalf("expected 2 resting updates, got %d", len(plan.RestingOrderUpdates))
+	}
+
+	firstUpdate := plan.RestingOrderUpdates[0]
+
+	if firstUpdate.ID != firstSell.ID {
+		t.Fatalf("expected first update %s, got %s", firstSell.ID, firstUpdate.ID)
+	}
+
+	if firstUpdate.Status != domain.StatusFilled {
+		t.Fatalf("expected first resting order FILLED, got %s", firstUpdate.Status)
+	}
+
+	if firstUpdate.RemainingQuantity != 0 {
+		t.Fatalf("expected first resting quantity 0, got %d", firstUpdate.RemainingQuantity)
+	}
+
+	secondUpdate := plan.RestingOrderUpdates[1]
+
+	if secondUpdate.ID != secondSell.ID {
+		t.Fatalf("expected second update %s, got %s", secondSell.ID, secondUpdate.ID)
+	}
+
+	if secondUpdate.Status != domain.StatusPartiallyFilled {
+		t.Fatalf("expected second resting order PARTIALLY_FILLED, got %s", secondUpdate.Status)
+	}
+
+	if secondUpdate.RemainingQuantity != 20 {
+		t.Fatalf("expected second resting quantity 20, got %d", secondUpdate.RemainingQuantity)
+	}
+
+	if len(plan.Trades) != 2 {
+		t.Fatalf("expected 2 trades, got %d", len(plan.Trades))
+	}
+
+	if plan.Trades[0].Price != 298 || plan.Trades[0].Quantity != 40 {
+		t.Fatalf("unexpected first trade: %#v", plan.Trades[0])
+	}
+
+	if plan.Trades[1].Price != 299 || plan.Trades[1].Quantity != 60 {
+		t.Fatalf("unexpected second trade: %#v", plan.Trades[1])
+	}
+
+	if orderBook.GetLastTradePrice() != 300 {
+		t.Fatalf("Prepare changed last trade price to %d", orderBook.GetLastTradePrice())
+	}
+}
+
+func TestEngineApplyUpdatesRestingOrders(t *testing.T) {
+	symbol := createSymbol(t)
+	orderBook := book.NewBook(symbol, time.Now().UTC(), 300)
+
+	firstSell := createOrder(t, symbol, domain.SideSell, 298, 40)
+	secondSell := createOrder(t, symbol, domain.SideSell, 299, 80)
+
+	if err := orderBook.Add(firstSell, secondSell); err != nil {
+		t.Fatalf("Add failed: %v", err)
+	}
+
+	engine := NewEngine(orderBook)
+	incomingBuy := createOrder(t, symbol, domain.SideBuy, 300, 100)
+
+	plan, err := engine.Prepare(incomingBuy)
+	if err != nil {
+		t.Fatalf("Prepare failed: %v", err)
+	}
+
+	if err := engine.Apply(plan); err != nil {
+		t.Fatalf("Apply failed: %v", err)
+	}
+
+	if level := orderBook.GetLevel(domain.SideSell, 298); len(level) != 0 {
+		t.Fatalf("expected filled price level 298 to be removed, got %#v", level)
+	}
+
+	bestSell, exists := orderBook.BestSell()
+	if !exists {
+		t.Fatal("expected partially filled SELL to remain")
+	}
+
+	if bestSell.ID != secondSell.ID {
+		t.Fatalf("expected remaining order %s, got %s", secondSell.ID, bestSell.ID)
+	}
+
+	if bestSell.RemainingQuantity != 20 {
+		t.Fatalf("expected remaining quantity 20, got %d", bestSell.RemainingQuantity)
+	}
+
+	if bestSell.Status != domain.StatusPartiallyFilled {
+		t.Fatalf("expected PARTIALLY_FILLED, got %s", bestSell.Status)
+	}
+
+	if _, exists := orderBook.BestBuy(); exists {
+		t.Fatal("fully filled incoming BUY must not be added to the book")
+	}
+
+	if orderBook.GetLastTradePrice() != 299 {
+		t.Fatalf("expected last trade price 299, got %d", orderBook.GetLastTradePrice())
+	}
+}
+
+func TestEngineApplyAddsUnmatchedIncomingOrder(t *testing.T) {
+	symbol := createSymbol(t)
+	orderBook := book.NewBook(symbol, time.Now().UTC(), 300)
+	engine := NewEngine(orderBook)
+
+	incomingBuy := createOrder(t, symbol, domain.SideBuy, 299, 100)
+
+	plan, err := engine.Prepare(incomingBuy)
+	if err != nil {
+		t.Fatalf("Prepare failed: %v", err)
+	}
+
+	if len(plan.Trades) != 0 {
+		t.Fatalf("expected no trades, got %d", len(plan.Trades))
+	}
+
+	if plan.IncomingOrder.Status != domain.StatusOpen {
+		t.Fatalf("expected planned order OPEN, got %s", plan.IncomingOrder.Status)
+	}
+
+	if err := engine.Apply(plan); err != nil {
+		t.Fatalf("Apply failed: %v", err)
+	}
+
+	bestBuy, exists := orderBook.BestBuy()
+	if !exists {
+		t.Fatal("expected incoming BUY to be added")
+	}
+
+	if bestBuy.ID != incomingBuy.ID {
+		t.Fatalf("expected order %s, got %s", incomingBuy.ID, bestBuy.ID)
+	}
+
+	if bestBuy.RemainingQuantity != 100 {
+		t.Fatalf("expected remaining quantity 100, got %d", bestBuy.RemainingQuantity)
+	}
+
+	if bestBuy.Status != domain.StatusOpen {
+		t.Fatalf("expected OPEN, got %s", bestBuy.Status)
+	}
+
+	if orderBook.GetLastTradePrice() != 300 {
+		t.Fatalf("no-match Apply changed last trade price to %d", orderBook.GetLastTradePrice())
+	}
+}
+
+func TestEngineApplyAddsPartiallyFilledIncomingOrder(t *testing.T) {
+	symbol := createSymbol(t)
+	orderBook := book.NewBook(symbol, time.Now().UTC(), 300)
+
+	restingSell := createOrder(t, symbol, domain.SideSell, 298, 40)
+
+	if err := orderBook.Add(restingSell); err != nil {
+		t.Fatalf("Add failed: %v", err)
+	}
+
+	engine := NewEngine(orderBook)
+	incomingBuy := createOrder(t, symbol, domain.SideBuy, 300, 100)
+
+	plan, err := engine.Prepare(incomingBuy)
+	if err != nil {
+		t.Fatalf("Prepare failed: %v", err)
+	}
+
+	if plan.IncomingOrder.RemainingQuantity != 60 {
+		t.Fatalf("expected planned remaining quantity 60, got %d", plan.IncomingOrder.RemainingQuantity)
+	}
+
+	if plan.IncomingOrder.Status != domain.StatusPartiallyFilled {
+		t.Fatalf("expected planned status PARTIALLY_FILLED, got %s", plan.IncomingOrder.Status)
+	}
+
+	if err := engine.Apply(plan); err != nil {
+		t.Fatalf("Apply failed: %v", err)
+	}
+
+	if _, exists := orderBook.BestSell(); exists {
+		t.Fatal("expected filled resting SELL to be removed")
+	}
+
+	bestBuy, exists := orderBook.BestBuy()
+	if !exists {
+		t.Fatal("expected incoming BUY remainder in book")
+	}
+
+	if bestBuy.ID != incomingBuy.ID {
+		t.Fatalf("expected incoming order %s, got %s", incomingBuy.ID, bestBuy.ID)
+	}
+
+	if bestBuy.RemainingQuantity != 60 {
+		t.Fatalf("expected live remaining quantity 60, got %d", bestBuy.RemainingQuantity)
+	}
+
+	if bestBuy.Status != domain.StatusPartiallyFilled {
+		t.Fatalf("expected PARTIALLY_FILLED, got %s", bestBuy.Status)
+	}
+
+	if orderBook.GetLastTradePrice() != 298 {
+		t.Fatalf("expected last trade price 298, got %d", orderBook.GetLastTradePrice())
 	}
 }

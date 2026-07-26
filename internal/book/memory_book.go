@@ -365,3 +365,69 @@ func (book *Book) GetUpperPriceLimit() int64 {
 func (book *Book) GetLowerPriceLimit() int64 {
 	return book.lowerPriceLimit
 }
+
+func (book *Book) MatchCandidates(order Order) ([]Order, error) {
+	incomingSide := order.Side
+	incomingPrice := order.Price
+	
+	var prices []int64
+	var levels map[int64][]Order
+
+	switch incomingSide {
+	case domain.SideBuy:
+		levels = book.sells
+
+		for price := range levels {
+			if price <= incomingPrice {
+				prices = append(prices, price)
+			}
+		}
+
+		slices.Sort(prices)
+
+	case domain.SideSell:
+		levels = book.buys
+
+		for price := range levels {
+			if price >= incomingPrice {
+				prices = append(prices, price)
+			}
+		}
+
+		slices.Sort(prices)
+		slices.Reverse(prices)
+
+	default:
+		return nil, domain.ErrInvalidSide
+	}
+
+	candidates := make([]Order, 0)
+	remainingMatches  := order.RemainingQuantity
+
+	if remainingMatches <= 0 {
+		return candidates, nil
+	}
+
+	for _, candidatePrice := range prices {
+		for _, order := range levels[candidatePrice] {
+			if order.RemainingQuantity <= 0 {
+				continue
+			}
+
+			candidates = append(candidates, order)
+
+			matchedQuantity := min(
+				remainingMatches,
+				order.RemainingQuantity,
+			)
+
+			remainingMatches -= matchedQuantity
+
+			if remainingMatches == 0 {
+				return candidates, nil
+			}
+		}
+	}
+
+	return candidates, nil
+}
