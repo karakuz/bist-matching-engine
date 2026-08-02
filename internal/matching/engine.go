@@ -48,162 +48,6 @@ func newTrade(order domain.Order, restingOrder domain.Order, quantity int64) dom
 	}
 }
 
-func submitBid(engine *Engine, order *domain.Order) (MatchResult, error) {
-	var err error = nil
-	matchResult := newMatchResult(order)
-	bestSellOrder, bestSellOrderExists := engine.book.BestSell()
-
-	if !bestSellOrderExists {
-		err = engine.book.Add(*order)
-		return matchResult, err
-	}
-
-	if order.Price < bestSellOrder.Price {
-		err = engine.book.Add(*order)
-		return matchResult, err
-	} else if order.Price == bestSellOrder.Price {
-		for bestSellOrderExists && order.Price == bestSellOrder.Price && order.RemainingQuantity > 0 {
-			tradeQty := min(order.RemainingQuantity, bestSellOrder.RemainingQuantity)
-
-			order.RemainingQuantity -= tradeQty
-			if order.RemainingQuantity == 0 {
-				order.Status = domain.StatusFilled
-			} else {
-				order.Status = domain.StatusPartiallyFilled
-			}
-
-			updatedRestingOrder, exists := engine.book.ReduceBestSell(tradeQty)
-			if !exists {
-				return matchResult, ErrUnhandledCase
-			}
-			matchResult.RestingOrderUpdates = append(matchResult.RestingOrderUpdates, updatedRestingOrder)
-
-			trade := newTrade(*order, bestSellOrder, tradeQty)
-			matchResult.Trades = append(matchResult.Trades, trade)
-
-			bestSellOrder, bestSellOrderExists = engine.book.BestSell()
-		}
-
-		if order.RemainingQuantity > 0 {
-			err = engine.book.Add(*order)
-		}
-
-		return matchResult, err
-	} else if order.Price > bestSellOrder.Price {
-		for bestSellOrderExists &&
-			order.Price >= bestSellOrder.Price &&
-			order.RemainingQuantity != 0 {
-
-			tradeQty := min(bestSellOrder.RemainingQuantity, order.RemainingQuantity)
-
-			trade := newTrade(*order, bestSellOrder, tradeQty)
-			matchResult.Trades = append(matchResult.Trades, trade)
-
-			updatedRestingOrder, exists := engine.book.ReduceBestSell(tradeQty)
-			if !exists {
-				return matchResult, ErrUnhandledCase
-			}
-			matchResult.RestingOrderUpdates = append(matchResult.RestingOrderUpdates, updatedRestingOrder)
-
-			order.RemainingQuantity -= tradeQty
-			if order.RemainingQuantity == 0 {
-				order.Status = domain.StatusFilled
-			} else {
-				order.Status = domain.StatusPartiallyFilled
-			}
-
-			//next best sell order
-			bestSellOrder, bestSellOrderExists = engine.book.BestSell()
-		}
-
-		//if all sell orders >= order.Price are traded and buy order has remaining qty
-		if order.RemainingQuantity > 0 {
-			err = engine.book.Add(*order)
-		}
-
-		return matchResult, err
-	}
-
-	return matchResult, ErrUnhandledCase
-}
-
-func submitAsk(engine *Engine, order *domain.Order) (MatchResult, error) {
-	var err error = nil
-	matchResult := newMatchResult(order)
-	bestBuyOrder, bestBuyOrderExists := engine.book.BestBuy()
-
-	if !bestBuyOrderExists {
-		err = engine.book.Add(*order)
-		return matchResult, err
-	}
-
-	if order.Price > bestBuyOrder.Price {
-		err = engine.book.Add(*order)
-		return matchResult, err
-	} else if order.Price == bestBuyOrder.Price {
-		for bestBuyOrderExists && order.Price <= bestBuyOrder.Price && order.RemainingQuantity > 0 {
-			tradeQty := min(order.RemainingQuantity, bestBuyOrder.RemainingQuantity)
-
-			order.RemainingQuantity -= tradeQty
-			if order.RemainingQuantity == 0 {
-				order.Status = domain.StatusFilled
-			} else {
-				order.Status = domain.StatusPartiallyFilled
-			}
-			updatedRestingOrder, exists := engine.book.ReduceBestBuy(tradeQty)
-			if !exists {
-				return matchResult, ErrUnhandledCase
-			}
-			matchResult.RestingOrderUpdates = append(matchResult.RestingOrderUpdates, updatedRestingOrder)
-
-			trade := newTrade(*order, bestBuyOrder, tradeQty)
-			matchResult.Trades = append(matchResult.Trades, trade)
-
-			bestBuyOrder, bestBuyOrderExists = engine.book.BestBuy()
-		}
-
-		if order.RemainingQuantity > 0 {
-			err = engine.book.Add(*order)
-		}
-
-		return matchResult, err
-	} else if order.Price < bestBuyOrder.Price {
-		for bestBuyOrderExists &&
-			order.Price <= bestBuyOrder.Price &&
-			order.RemainingQuantity != 0 {
-
-			tradeQty := min(bestBuyOrder.RemainingQuantity, order.RemainingQuantity)
-
-			trade := newTrade(*order, bestBuyOrder, tradeQty)
-			matchResult.Trades = append(matchResult.Trades, trade)
-
-			updatedRestingOrder, exists := engine.book.ReduceBestBuy(tradeQty)
-			if !exists {
-				return matchResult, ErrUnhandledCase
-			}
-			matchResult.RestingOrderUpdates = append(matchResult.RestingOrderUpdates, updatedRestingOrder)
-
-			order.RemainingQuantity -= tradeQty
-			if order.RemainingQuantity == 0 {
-				order.Status = domain.StatusFilled
-			} else {
-				order.Status = domain.StatusPartiallyFilled
-			}
-
-			//next best buy order
-			bestBuyOrder, bestBuyOrderExists = engine.book.BestBuy()
-		}
-
-		//if order has remaining qty
-		if order.RemainingQuantity > 0 {
-			err = engine.book.Add(*order)
-		}
-		return matchResult, err
-	}
-
-	return matchResult, ErrUnhandledCase
-}
-
 type MatchResult struct {
 	IncomingOrder       *domain.Order
 	RestingOrderUpdates []domain.Order
@@ -222,41 +66,22 @@ func (engine *Engine) Submit(order *domain.Order) (MatchResult, error) {
 	engine.mutex.Lock()
 	defer engine.mutex.Unlock()
 
-	result, err := engine.submit(order)
+	plan, err := engine.prepare(*order)
 	if err != nil {
-		return result, err
+		return newMatchResult(order), err
 	}
 
-	if len(result.Trades) > 0 {
-		lastTrade := result.Trades[len(result.Trades)-1]
-		engine.book.UpdateLastTradePrice(lastTrade.Price)
+	if err := engine.apply(plan); err != nil {
+		return newMatchResult(order), err
 	}
 
-	return result, nil
-}
+	*order = plan.IncomingOrder
 
-func (engine *Engine) submit(order *domain.Order) (MatchResult, error) {
-	matchResult := newMatchResult(order)
-
-	if order.Symbol.Code != engine.book.Symbol.Code {
-		return matchResult, ErrOrderSymbolDoesNotMatchWithEngineSymbol
-	}
-	upperPriceLimit := engine.book.GetUpperPriceLimit()
-	lowerPriceLimit := engine.book.GetLowerPriceLimit()
-
-	isValidPrice := upperPriceLimit >= order.Price && lowerPriceLimit <= order.Price
-	if !isValidPrice {
-		return matchResult, ErrPriceOutsideAllowedRange
-	}
-
-	switch order.Side {
-	case domain.SideBuy:
-		return submitBid(engine, order)
-	case domain.SideSell:
-		return submitAsk(engine, order)
-	}
-
-	return matchResult, ErrUnhandledCase
+	return MatchResult{
+		IncomingOrder:       order,
+		RestingOrderUpdates: plan.RestingOrderUpdates,
+		Trades:              plan.Trades,
+	}, nil
 }
 
 func (engine *Engine) SessionDate() time.Time {
@@ -283,8 +108,13 @@ func (engine *Engine) Prepare(order domain.Order) (MatchPlan, error) {
 	engine.mutex.RLock()
 	defer engine.mutex.RUnlock()
 
+	return engine.prepare(order)
+}
+
+func (engine *Engine) prepare(order domain.Order) (MatchPlan, error) {
+
 	if order.Symbol.Code != engine.book.Symbol.Code {
-		return MatchPlan{},	ErrOrderSymbolDoesNotMatchWithEngineSymbol
+		return MatchPlan{}, ErrOrderSymbolDoesNotMatchWithEngineSymbol
 	}
 
 	if order.Price < engine.book.GetLowerPriceLimit() ||
@@ -306,7 +136,7 @@ func (engine *Engine) Prepare(order domain.Order) (MatchPlan, error) {
 			break
 		}
 
-		tradeQuantity := min(incomingOrder.RemainingQuantity,candidate.RemainingQuantity)
+		tradeQuantity := min(incomingOrder.RemainingQuantity, candidate.RemainingQuantity)
 
 		incomingOrder.RemainingQuantity -= tradeQuantity
 		candidate.RemainingQuantity -= tradeQuantity
@@ -323,10 +153,10 @@ func (engine *Engine) Prepare(order domain.Order) (MatchPlan, error) {
 			candidate.Status = domain.StatusPartiallyFilled
 		}
 
-		restingOrderUpdates = append(restingOrderUpdates,candidate)
+		restingOrderUpdates = append(restingOrderUpdates, candidate)
 
-		trade := newTrade(incomingOrder,candidate,tradeQuantity)
-		trades = append(trades,trade)
+		trade := newTrade(incomingOrder, candidate, tradeQuantity)
+		trades = append(trades, trade)
 	}
 
 	return MatchPlan{
@@ -339,6 +169,11 @@ func (engine *Engine) Prepare(order domain.Order) (MatchPlan, error) {
 func (engine *Engine) Apply(plan MatchPlan) error {
 	engine.mutex.Lock()
 	defer engine.mutex.Unlock()
+
+	return engine.apply(plan)
+}
+
+func (engine *Engine) apply(plan MatchPlan) error {
 
 	for index, trade := range plan.Trades {
 		var (
