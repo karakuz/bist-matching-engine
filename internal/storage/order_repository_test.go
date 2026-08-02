@@ -117,6 +117,15 @@ func TestPostgresStore_InsertAndGetOrderByID(t *testing.T) {
 		t.Fatalf("store.GetBookInitialization failed: %v", err)
 	}
 
+	lastSequence, err := store.GetLastOrderSequence(
+		ctx,
+		initialization.Symbol.Code,
+		initialization.SessionDate,
+	)
+	if err != nil {
+		t.Fatalf("GetLastOrderSequence failed: %v", err)
+	}
+
 	order, err := domain.NewOrder(
 		uuid.NewString(),
 		testParticipantId,
@@ -127,6 +136,7 @@ func TestPostgresStore_InsertAndGetOrderByID(t *testing.T) {
 		100,
 		time.Now().UTC(),
 	)
+	order.Sequence = lastSequence + 1
 	if err != nil {
 		t.Fatalf("NewOrder failed: %v", err)
 	}
@@ -174,6 +184,15 @@ func TestPostgresStore_UpdateOrder(t *testing.T) {
 		t.Fatalf("store.GetBookInitialization failed: %v", err)
 	}
 
+	lastSequence, err := store.GetLastOrderSequence(
+		ctx,
+		initialization.Symbol.Code,
+		initialization.SessionDate,
+	)
+	if err != nil {
+		t.Fatalf("GetLastOrderSequence failed: %v", err)
+	}
+
 	order, err := domain.NewOrder(
 		uuid.NewString(),
 		testParticipantId,
@@ -184,6 +203,7 @@ func TestPostgresStore_UpdateOrder(t *testing.T) {
 		100,
 		time.Now().UTC(),
 	)
+	order.Sequence = lastSequence + 1
 	if err != nil {
 		t.Fatalf("NewOrder failed: %v", err)
 	}

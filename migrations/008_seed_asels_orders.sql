@@ -1,6 +1,7 @@
 WITH seed_orders AS (
     SELECT
         order_number,
+        order_number AS sequence_number,
         'BUY'::TEXT AS side,
         35000 - (50 * (((order_number - 1) % 6) + 1)) AS price,
         CURRENT_DATE + TIME '09:30:00'
@@ -11,6 +12,7 @@ WITH seed_orders AS (
 
     SELECT
         order_number,
+        order_number + 26 AS sequence_number,
         'SELL'::TEXT AS side,
         35000 + (50 * (((order_number - 1) % 6) + 1)) AS price,
         CURRENT_DATE + TIME '09:30:00'
@@ -30,6 +32,7 @@ orders_with_participants AS (
 )
 INSERT INTO orders (
     id,
+    sequence_number,
     participant_id,
     symbol,
     session_date,
@@ -48,6 +51,7 @@ SELECT
         || lower(side)
         || '-'
         || lpad(order_number::TEXT, 2, '0'),
+    sequence_number,
     participant_id,
     'ASELS',
     CURRENT_DATE,

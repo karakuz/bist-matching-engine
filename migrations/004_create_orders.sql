@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
+    sequence_number BIGINT NOT NULL CHECK (sequence_number > 0),
     participant_id INTEGER NOT NULL
         REFERENCES participants(id)
         ON DELETE RESTRICT,
@@ -11,6 +12,8 @@ CREATE TABLE IF NOT EXISTS orders (
         FOREIGN KEY (symbol, session_date)
         REFERENCES market_sessions(symbol_code, session_date)
         ON DELETE RESTRICT,
+    CONSTRAINT orders_symbol_session_sequence_unique
+        UNIQUE (symbol, session_date, sequence_number),
     side TEXT NOT NULL CHECK (side IN ('BUY', 'SELL')),
     price BIGINT NOT NULL CHECK (price > 0),
     quantity BIGINT NOT NULL CHECK (quantity > 0),

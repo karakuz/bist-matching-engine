@@ -25,6 +25,7 @@ const (
 
 type Order struct {
 	ID                string
+	Sequence          int64
 	ParticipantID     int64
 	Symbol            Symbol
 	SessionDate       time.Time
