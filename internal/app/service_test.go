@@ -73,6 +73,21 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 
 		if _, err := pool.Exec(
 			cleanupCtx,
+			`
+				DELETE FROM order_events
+				WHERE order_id IN (
+					SELECT id
+					FROM orders
+					WHERE participant_id = $1
+				)
+			`,
+			participantID,
+		); err != nil {
+			t.Errorf("cleanup order events: %v", err)
+		}
+
+		if _, err := pool.Exec(
+			cleanupCtx,
 			"DELETE FROM orders WHERE participant_id = $1",
 			participantID,
 		); err != nil {
@@ -104,54 +119,84 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 		Quantity:      4,
 	}
 
-	buyResult, err := SubmitOrder(ctx, store, engine, submitBuyOrderRequest)
+	lastSequence, err := store.GetLastOrderSequence(
+		ctx,
+		initialization.Symbol.Code,
+		initialization.SessionDate,
+	)
+	if err != nil {
+		t.Fatalf("GetLastOrderSequence failed: %v", err)
+	}
+
+	worker, err := NewOrderWorker(
+		store,
+		engine,
+		initialization.Symbol,
+		lastSequence,
+		10,
+	)
+	if err != nil {
+		t.Fatalf("NewOrderWorker failed: %v", err)
+	}
+	t.Cleanup(worker.Stop)
+
+	buyResult, err := worker.Submit(ctx, submitBuyOrderRequest)
 	if err != nil {
 		t.Fatalf("submit BUY: %v", err)
 	}
 
-	t.Cleanup(func() {
-		cleanupCtx := context.Background()
+	if buyResult.Order.Sequence != lastSequence+1 {
+		t.Errorf(
+			"expected BUY sequence %d, got %d",
+			lastSequence+1,
+			buyResult.Order.Sequence,
+		)
+	}
 
-		if _, err := pool.Exec(
-			cleanupCtx,
-			`
-				DELETE FROM trades
-				WHERE buy_order_id IN (
-					SELECT id FROM orders WHERE participant_id = $1
-				)
-				OR sell_order_id IN (
-					SELECT id FROM orders WHERE participant_id = $1
-				)
-			`,
-			participantID,
-		); err != nil {
-			t.Errorf("cleanup trades: %v", err)
-		}
-
-		if _, err := pool.Exec(
-			cleanupCtx,
-			"DELETE FROM orders WHERE participant_id = $1",
-			participantID,
-		); err != nil {
-			t.Errorf("cleanup orders: %v", err)
-		}
-
-		if _, err := pool.Exec(
-			cleanupCtx,
-			"DELETE FROM participants WHERE id = $1",
-			participantID,
-		); err != nil {
-			t.Errorf("cleanup participant: %v", err)
-		}
-	})
-
-	sellResult, err := SubmitOrder(ctx, store, engine, submitSellOrderRequest)
+	sellResult, err := worker.Submit(ctx, submitSellOrderRequest)
 	if err != nil {
 		t.Fatalf("submit SELL: %v", err)
 	}
 
 	if len(sellResult.Trades) != 1 {
 		t.Fatalf("expected 1 trade, got %d", len(sellResult.Trades))
+	}
+
+	if sellResult.Order.Sequence != lastSequence+2 {
+		t.Errorf(
+			"expected SELL sequence %d, got %d",
+			lastSequence+2,
+			sellResult.Order.Sequence,
+		)
+	}
+
+	var buySequence int64
+	var sellSequence int64
+
+	err = pool.QueryRow(
+		ctx,
+		`SELECT sequence_number FROM orders WHERE id = $1`,
+		buyResult.Order.ID,
+	).Scan(&buySequence)
+	if err != nil {
+		t.Fatalf("query BUY sequence: %v", err)
+	}
+
+	err = pool.QueryRow(
+		ctx,
+		`SELECT sequence_number FROM orders WHERE id = $1`,
+		sellResult.Order.ID,
+	).Scan(&sellSequence)
+	if err != nil {
+		t.Fatalf("query SELL sequence: %v", err)
+	}
+
+	if buySequence != lastSequence+1 {
+		t.Errorf("unexpected persisted BUY sequence: %d", buySequence)
+	}
+
+	if sellSequence != lastSequence+2 {
+		t.Errorf("unexpected persisted SELL sequence: %d", sellSequence)
 	}
 
 	tradeID := sellResult.Trades[0].ID
@@ -248,5 +293,26 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 
 	if tradeQuantity != 4 {
 		t.Errorf("expected trade quantity 4, got %d", tradeQuantity)
+	}
+
+	snapshot, err := engine.Snapshot(10)
+	if err != nil {
+		t.Fatalf("Snapshot failed: %v", err)
+	}
+
+	if len(snapshot.Buy) != 1 {
+		t.Fatalf("expected 1 BUY level, got %d", len(snapshot.Buy))
+	}
+
+	if snapshot.Buy[0].Price != 35000 {
+		t.Errorf("expected BUY price 35000, got %d", snapshot.Buy[0].Price)
+	}
+
+	if snapshot.Buy[0].Quantity != 6 {
+		t.Errorf("expected BUY quantity 6, got %d", snapshot.Buy[0].Quantity)
+	}
+
+	if len(snapshot.Sell) != 0 {
+		t.Fatalf("expected no SELL levels, got %d", len(snapshot.Sell))
 	}
 }

@@ -7,7 +7,6 @@ import (
 
 	"bist-matching-engine/internal/book"
 	"bist-matching-engine/internal/matching"
-	"bist-matching-engine/internal/storage"
 	"bist-matching-engine/internal/app"
 
 	"github.com/gin-gonic/gin"
@@ -15,12 +14,13 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"context"
 )
 
 func RegisterRoutes(
 	router *gin.Engine,
-	store *storage.PostgresStore,
 	engine map[string]*matching.Engine,
+	workers map[string]*app.OrderWorker,
 ) {
 	router.GET("/alivez", func(c *gin.Context) {
 		c.JSON(stdhttp.StatusOK, []gin.H{
@@ -29,14 +29,14 @@ func RegisterRoutes(
 		return
 	})
 
-	router.GET("/engine/:symbol/:levels", func(c *gin.Context) {
+	router.GET("/engine/:symbol/snapshot/:levels", func(c *gin.Context) {
 		const maxSnapshotLevels = 100
 
 		symbol := strings.ToUpper(c.Param("symbol"))
 		levelsStr := c.Param("levels")
 
-		engine := engine[symbol]
-		if engine == nil {
+		orderEngine  := engine[symbol]
+		if orderEngine  == nil {
 			c.JSON(stdhttp.StatusNotFound, gin.H{
 				"message": fmt.Sprintf("order engine for '%s' not found", symbol),
 			})
@@ -52,7 +52,7 @@ func RegisterRoutes(
 			return
 		}
 
-		snapshot, err := engine.Snapshot(int64(levels))
+		snapshot, err := orderEngine.Snapshot(int64(levels))
 		if err != nil {
 			switch {
 			case errors.Is(err, book.ErrSnapshotSizeNonPositive):
@@ -88,28 +88,44 @@ func RegisterRoutes(
 			return
 		}
 
-		engine := engine[req.Symbol]
-		if engine == nil {
+		req.Symbol = strings.ToUpper(req.Symbol)
+		worker := workers[req.Symbol]
+		if worker == nil {
 			c.JSON(stdhttp.StatusNotFound, gin.H{
-				"message": fmt.Sprintf("order engine for '%s' not found", req.Symbol),
+				"message": fmt.Sprintf("order worker for '%s' not found",req.Symbol),
 			})
 			return
 		}
 
-		result, err := app.SubmitOrder(c.Request.Context(), store, engine, req)
+		result, err := worker.Submit(c.Request.Context(),req)
 		if err != nil {
-			if errors.Is(err, app.ErrInvalidOrder) {
+			switch {
+			case errors.Is(err, app.ErrInvalidOrder):
 				c.JSON(stdhttp.StatusBadRequest, gin.H{
 					"message": err.Error(),
 				})
+
+			case errors.Is(err, app.ErrSubmissionQueueFull):
+				c.JSON(stdhttp.StatusServiceUnavailable, gin.H{
+					"message": "order submission queue is full",
+				})
+
+			case errors.Is(err, app.ErrWorkerStopped):
+				c.JSON(stdhttp.StatusServiceUnavailable, gin.H{
+					"message": "order submission is unavailable",
+				})
+
+			case errors.Is(err, context.Canceled):
 				return
+
+			default:
+				log.Printf("submit order failed: %v", err)
+
+				c.JSON(stdhttp.StatusInternalServerError, gin.H{
+					"message": "internal server error",
+				})
 			}
 
-			log.Printf("submit order failed: %v", err)
-
-			c.JSON(stdhttp.StatusInternalServerError, gin.H{
-				"message": "internal server error",
-			})
 			return
 		}
 
