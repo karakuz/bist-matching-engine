@@ -26,7 +26,6 @@ func RegisterRoutes(
 		c.JSON(stdhttp.StatusOK, []gin.H{
 			{"Test": "123"},
 		})
-		return
 	})
 
 	router.GET("/engine/:symbol/snapshot/:levels", func(c *gin.Context) {
