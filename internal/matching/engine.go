@@ -48,42 +48,6 @@ func newTrade(order domain.Order, restingOrder domain.Order, quantity int64) dom
 	}
 }
 
-type MatchResult struct {
-	IncomingOrder       *domain.Order
-	RestingOrderUpdates []domain.Order
-	Trades              []domain.Trade
-}
-
-func newMatchResult(order *domain.Order) MatchResult {
-	return MatchResult{
-		IncomingOrder:       order,
-		RestingOrderUpdates: make([]domain.Order, 0),
-		Trades:              make([]domain.Trade, 0),
-	}
-}
-
-func (engine *Engine) Submit(order *domain.Order) (MatchResult, error) {
-	engine.mutex.Lock()
-	defer engine.mutex.Unlock()
-
-	plan, err := engine.prepare(*order)
-	if err != nil {
-		return newMatchResult(order), err
-	}
-
-	if err := engine.apply(plan); err != nil {
-		return newMatchResult(order), err
-	}
-
-	*order = plan.IncomingOrder
-
-	return MatchResult{
-		IncomingOrder:       order,
-		RestingOrderUpdates: plan.RestingOrderUpdates,
-		Trades:              plan.Trades,
-	}, nil
-}
-
 func (engine *Engine) SessionDate() time.Time {
 	engine.mutex.RLock()
 	defer engine.mutex.RUnlock()

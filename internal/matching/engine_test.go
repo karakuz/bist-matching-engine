@@ -76,7 +76,7 @@ func TestEngineForBuyOrders(t *testing.T) {
 		//price can be >= 270 and <= 330, book is created with openingPrice 300
 
 		order := createOrder(t, symbol, domain.SideBuy, 269, 100)
-		_, err := engine.Submit(&order)
+		_, err := engine.prepare(order)
 		if err != ErrPriceOutsideAllowedRange {
 			t.Fatalf("expected ErrPriceOutsideAllowedRange error, got %v", err)
 		}
@@ -87,14 +87,15 @@ func TestEngineForBuyOrders(t *testing.T) {
 		engine := NewEngine(&orderBook)
 
 		order := createOrder(t, symbol, domain.SideBuy, 299, 100)
-		matchResult, err := engine.Submit(&order)
-		returnedOrder := matchResult.IncomingOrder
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		returnedOrder := matchPlan.IncomingOrder
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
-		if returnedOrder != &order {
+		if returnedOrder != order {
 			t.Fatalf("expected returned order to be same with order")
 		}
 		if returnedOrder.Status != domain.StatusOpen {
@@ -120,15 +121,16 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideBuy, 300, 100)
 
-		matchResult, err := engine.Submit(&order)
-		returnedOrder := matchResult.IncomingOrder
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		returnedOrder := matchPlan.IncomingOrder
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
 		}
-		if order != *returnedOrder {
-			t.Fatalf("expected returnedOrder = order, got %+v want %+v", *returnedOrder, order)
+		if order != returnedOrder {
+			t.Fatalf("expected returnedOrder = order, got %+v want %+v", returnedOrder, order)
 		}
 		if len(trades) != 0 {
 			t.Fatalf("expected len(trades) to be 0, got %d", len(trades))
@@ -156,9 +158,10 @@ func TestEngineForBuyOrders(t *testing.T) {
 		order := createOrder(t, symbol, domain.SideBuy, 302, 100)
 		initialBestSellOrder, _ := engine.book.BestSell()
 
-		matchResult, err := engine.Submit(&order)
-		returnedOrder := matchResult.IncomingOrder
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		returnedOrder := matchPlan.IncomingOrder
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -211,9 +214,10 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideBuy, 302, 150)
 
-		matchResult, err := engine.Submit(&order)
-		returnedOrder := matchResult.IncomingOrder
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		returnedOrder := matchPlan.IncomingOrder
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -263,9 +267,10 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideBuy, 302, 50)
 
-		matchResult, err := engine.Submit(&order)
-		returnedOrder := matchResult.IncomingOrder
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		returnedOrder := matchPlan.IncomingOrder
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -317,9 +322,10 @@ func TestEngineForBuyOrders(t *testing.T) {
 		order := createOrder(t, symbol, domain.SideBuy, 303, 150)
 		initialBestSellOrder, _ := engine.book.BestSell()
 
-		matchResult, err := engine.Submit(&order)
-		returnedOrder := matchResult.IncomingOrder
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		returnedOrder := matchPlan.IncomingOrder
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -472,9 +478,10 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 				initialBestSellOrder, _ := engine.book.BestSell()
 
-				matchResult, err := engine.Submit(&order)
-				returnedOrder := matchResult.IncomingOrder
-				trades := matchResult.Trades
+				matchPlan, err := engine.prepare(order)
+				engine.apply(matchPlan)
+				returnedOrder := matchPlan.IncomingOrder
+				trades := matchPlan.Trades
 
 				if err != nil {
 					t.Fatalf("engine.Submit failed: %v", err)
@@ -627,9 +634,10 @@ func TestEngineForBuyOrders(t *testing.T) {
 
 				engine := NewEngine(orderBook)
 
-				matchResult, err := engine.Submit(&t3BuyOrder)
-				returnedOrder := matchResult.IncomingOrder
-				trades := matchResult.Trades
+				matchPlan, err := engine.prepare(t3BuyOrder)
+				engine.apply(matchPlan)
+				returnedOrder := matchPlan.IncomingOrder
+				trades := matchPlan.Trades
 
 				if err != nil {
 					t.Fatalf("engine.Submit failed: %v", err)
@@ -660,8 +668,9 @@ func TestEngineForBuyOrders(t *testing.T) {
 		engine := NewEngine(&orderBook)
 
 		order := createOrder(t, symbol, domain.SideBuy, 305, 100)
-		matchResult, err := engine.Submit(&order)
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -687,9 +696,9 @@ func TestEngineForSellOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideSell, 303, 100)
 
-		matchResult, err := engine.Submit(&order)
-		returnedOrder := matchResult.IncomingOrder
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		returnedOrder := matchPlan.IncomingOrder
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -708,9 +717,10 @@ func TestEngineForSellOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideSell, 300, 100)
 
-		matchResult, err := engine.Submit(&order)
-		returnedOrder := matchResult.IncomingOrder
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		returnedOrder := matchPlan.IncomingOrder
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -739,9 +749,10 @@ func TestEngineForSellOrders(t *testing.T) {
 		order := createOrder(t, symbol, domain.SideSell, 301, 100)
 		initialBestBuyOrder, _ := engine.book.BestBuy()
 
-		matchResult, err := engine.Submit(&order)
-		returnedOrder := matchResult.IncomingOrder
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		returnedOrder := matchPlan.IncomingOrder
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -794,9 +805,10 @@ func TestEngineForSellOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideSell, 301, 150)
 
-		matchResult, err := engine.Submit(&order)
-		returnedOrder := matchResult.IncomingOrder
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		returnedOrder := matchPlan.IncomingOrder
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -846,9 +858,10 @@ func TestEngineForSellOrders(t *testing.T) {
 
 		order := createOrder(t, symbol, domain.SideSell, 301, 50)
 
-		matchResult, err := engine.Submit(&order)
-		returnedOrder := matchResult.IncomingOrder
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		returnedOrder := matchPlan.IncomingOrder
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -901,9 +914,10 @@ func TestEngineForSellOrders(t *testing.T) {
 		order := createOrder(t, symbol, domain.SideSell, 300, 150)
 		initialBestBuyOrder, _ := engine.book.BestBuy()
 
-		matchResult, err := engine.Submit(&order)
-		returnedOrder := matchResult.IncomingOrder
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		returnedOrder := matchPlan.IncomingOrder
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -1048,9 +1062,10 @@ func TestEngineForSellOrders(t *testing.T) {
 
 				initialBestBuyOrder, _ := engine.book.BestBuy()
 
-				matchResult, err := engine.Submit(&order)
-				returnedOrder := matchResult.IncomingOrder
-				trades := matchResult.Trades
+				matchPlan, err := engine.prepare(order)
+				engine.apply(matchPlan)
+				returnedOrder := matchPlan.IncomingOrder
+				trades := matchPlan.Trades
 
 				if err != nil {
 					t.Fatalf("engine.Submit failed: %v", err)
@@ -1199,9 +1214,9 @@ func TestEngineForSellOrders(t *testing.T) {
 
 				engine := NewEngine(orderBook)
 
-				matchResult, err := engine.Submit(&t3SellOrder)
-				returnedOrder := matchResult.IncomingOrder
-				trades := matchResult.Trades
+				matchPlan, err := engine.prepare(t3SellOrder)
+				returnedOrder := matchPlan.IncomingOrder
+				trades := matchPlan.Trades
 
 				if err != nil {
 					t.Fatalf("engine.Submit failed: %v", err)
@@ -1231,8 +1246,9 @@ func TestEngineForSellOrders(t *testing.T) {
 		engine := NewEngine(&orderBook)
 
 		order := createOrder(t, symbol, domain.SideSell, 299, 100)
-		matchResult, err := engine.Submit(&order)
-		trades := matchResult.Trades
+		matchPlan, err := engine.prepare(order)
+		engine.apply(matchPlan)
+		trades := matchPlan.Trades
 
 		if err != nil {
 			t.Fatalf("engine.Submit failed: %v", err)
@@ -1249,7 +1265,7 @@ func TestEngineForSellOrders(t *testing.T) {
 	})
 }
 
-func TestEngineMatchResultContainsRestingOrderUpdates(t *testing.T) {
+func TestEnginematchPlanContainsRestingOrderUpdates(t *testing.T) {
 	tests := []struct {
 		name                    string
 		restingSide             domain.Side
@@ -1364,20 +1380,20 @@ func TestEngineMatchResultContainsRestingOrderUpdates(t *testing.T) {
 				test.incomingQuantity,
 			)
 
-			matchResult, err := engine.Submit(&incomingOrder)
+			matchPlan, err := engine.prepare(incomingOrder)
 			if err != nil {
 				t.Fatalf("engine.Submit failed: %v", err)
 			}
 
-			if len(matchResult.RestingOrderUpdates) != len(restingOrders) {
+			if len(matchPlan.RestingOrderUpdates) != len(restingOrders) {
 				t.Fatalf(
 					"expected %d resting order updates, got %d",
 					len(restingOrders),
-					len(matchResult.RestingOrderUpdates),
+					len(matchPlan.RestingOrderUpdates),
 				)
 			}
 
-			for updateIndex, update := range matchResult.RestingOrderUpdates {
+			for updateIndex, update := range matchPlan.RestingOrderUpdates {
 				wantOrder := restingOrders[updateIndex]
 
 				if update.ID != wantOrder.ID {
