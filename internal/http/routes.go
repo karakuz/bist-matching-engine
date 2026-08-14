@@ -96,7 +96,7 @@ func RegisterRoutes(
 			return
 		}
 
-		result, err := worker.Submit(c.Request.Context(),req)
+		err = worker.Submit(c.Request.Context(),req)
 		if err != nil {
 			switch {
 			case errors.Is(err, app.ErrInvalidOrder):
@@ -128,6 +128,8 @@ func RegisterRoutes(
 			return
 		}
 
-		c.JSON(stdhttp.StatusCreated, result)
+		c.JSON(stdhttp.StatusCreated, map[string]string{
+			"message": "Order Created",
+		})
 	})
 }

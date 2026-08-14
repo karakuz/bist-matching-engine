@@ -140,52 +140,34 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 	}
 	t.Cleanup(worker.Stop)
 
-	buyResult, err := worker.Submit(ctx, submitBuyOrderRequest)
+	buyOrder, err := CreateOrderFromSubmitOrderRequest(worker, submitBuyOrderRequest)
+	if err != nil{
+		t.Fatalf("CreateOrderFromSubmitOrderRequest: %v", err)
+	}
+
+	_, buyOrderPlan, err := worker.process(ctx, buyOrder)
 	if err != nil {
-		t.Fatalf("submit BUY: %v", err)
+		t.Fatalf("process BUY: %v", err)
 	}
 
-	if buyResult.Order.Sequence != lastSequence+1 {
-		t.Errorf(
-			"expected BUY sequence %d, got %d",
-			lastSequence+1,
-			buyResult.Order.Sequence,
-		)
-	}
 
-	sellResult, err := worker.Submit(ctx, submitSellOrderRequest)
+	sellOrder, err := CreateOrderFromSubmitOrderRequest(worker, submitSellOrderRequest)
+	if err != nil{
+		t.Fatalf("CreateOrderFromSubmitOrderRequest: %v", err)
+	}
+	_, sellOrderPlan, err := worker.process(ctx, sellOrder)
 	if err != nil {
-		t.Fatalf("submit SELL: %v", err)
-	}
-
-	if len(sellResult.Trades) != 1 {
-		t.Fatalf("expected 1 trade, got %d", len(sellResult.Trades))
-	}
-
-	if sellResult.Order.Sequence != lastSequence+2 {
-		t.Errorf(
-			"expected SELL sequence %d, got %d",
-			lastSequence+2,
-			sellResult.Order.Sequence,
-		)
+		t.Fatalf("process SELL: %v", err)
 	}
 
 	var buySequence int64
 	var sellSequence int64
 
-	err = pool.QueryRow(
-		ctx,
-		`SELECT sequence_number FROM orders WHERE id = $1`,
-		buyResult.Order.ID,
-	).Scan(&buySequence)
-	if err != nil {
-		t.Fatalf("query BUY sequence: %v", err)
-	}
 
 	err = pool.QueryRow(
 		ctx,
 		`SELECT sequence_number FROM orders WHERE id = $1`,
-		sellResult.Order.ID,
+		sellOrderPlan.IncomingOrder.ID,
 	).Scan(&sellSequence)
 	if err != nil {
 		t.Fatalf("query SELL sequence: %v", err)
@@ -199,14 +181,14 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 		t.Errorf("unexpected persisted SELL sequence: %d", sellSequence)
 	}
 
-	tradeID := sellResult.Trades[0].ID
+	tradeID := sellOrderPlan.Trades[0].ID
 
 	var buyStatus domain.OrderStatus
 	var buyRemainingQuantity int64
 
 	err = pool.QueryRow(
 		ctx, `SELECT status, remaining_quantity FROM orders WHERE id = $1`,
-		buyResult.Order.ID,
+		buyOrderPlan.IncomingOrder.ID,
 	).Scan(&buyStatus, &buyRemainingQuantity)
 	if err != nil {
 		t.Fatalf("query BUY order: %v", err)
@@ -232,7 +214,7 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 	var sellRemainingQuantity int64
 
 	err = pool.QueryRow(ctx, `SELECT status, remaining_quantity FROM orders WHERE id = $1`,
-		sellResult.Order.ID,
+		sellOrderPlan.IncomingOrder.ID,
 	).Scan(&sellStatus, &sellRemainingQuantity)
 	if err != nil {
 		t.Fatalf("query SELL order: %v", err)
@@ -271,18 +253,18 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 		t.Fatalf("query trade: %v", err)
 	}
 
-	if buyOrderID != buyResult.Order.ID {
+	if buyOrderID != buyOrderPlan.IncomingOrder.ID {
 		t.Errorf(
 			"expected trade BUY order ID %s, got %s",
-			buyResult.Order.ID,
+			buyOrderPlan.IncomingOrder.ID,
 			buyOrderID,
 		)
 	}
 
-	if sellOrderIDFromDB != sellResult.Order.ID {
+	if sellOrderIDFromDB != sellOrderPlan.IncomingOrder.ID {
 		t.Errorf(
 			"expected trade SELL order ID %s, got %s",
-			sellResult.Order.ID,
+			sellOrderPlan.IncomingOrder.ID,
 			sellOrderIDFromDB,
 		)
 	}

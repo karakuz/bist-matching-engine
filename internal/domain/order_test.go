@@ -127,7 +127,7 @@ func TestNewOrder_AcceptsValidOrder(t *testing.T) {
 	if order.RemainingQuantity != 100 {
 		t.Fatalf("unexpected RemainingQuantity: %d", order.RemainingQuantity)
 	}
-	if order.Status != StatusOpen {
+	if order.Status != StatusCreated {
 		t.Fatalf("unexpected Status: %s", order.Status)
 	}
 	if !order.CreatedAt.Equal(now) {

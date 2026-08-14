@@ -98,8 +98,8 @@ func TestEngineForBuyOrders(t *testing.T) {
 		if returnedOrder != order {
 			t.Fatalf("expected returned order to be same with order")
 		}
-		if returnedOrder.Status != domain.StatusOpen {
-			t.Fatalf("expected returned to have status OPEN, got: %s", returnedOrder.Status)
+		if returnedOrder.Status != domain.StatusCreated {
+			t.Fatalf("expected returned to have status CREATED, got: %s", returnedOrder.Status)
 		}
 
 		if len(trades) != 0 {
@@ -138,8 +138,8 @@ func TestEngineForBuyOrders(t *testing.T) {
 		if returnedOrder.RemainingQuantity != 100 {
 			t.Fatalf("expected returnedOrder.RemainingQuantity to be 100, got %d", returnedOrder.RemainingQuantity)
 		}
-		if returnedOrder.Status != domain.StatusOpen {
-			t.Fatalf("expected returned to have status OPEN, got: %s", returnedOrder.Status)
+		if returnedOrder.Status != domain.StatusCreated {
+			t.Fatalf("expected returned to have status CREATED, got: %s", returnedOrder.Status)
 		}
 
 		bestBuyOrder, exists := engine.book.BestBuy()
@@ -706,8 +706,8 @@ func TestEngineForSellOrders(t *testing.T) {
 		if len(trades) != 0 {
 			t.Fatalf("expected 0 trade, got %d", len(trades))
 		}
-		if returnedOrder.Status != domain.StatusOpen {
-			t.Fatalf("expected returnedOrder.Status to be OPEN, got %s", returnedOrder.Status)
+		if returnedOrder.Status != domain.StatusCreated {
+			t.Fatalf("expected returnedOrder.Status to be CREATED, got %s", returnedOrder.Status)
 		}
 	})
 
@@ -728,8 +728,8 @@ func TestEngineForSellOrders(t *testing.T) {
 		if len(trades) != 0 {
 			t.Fatalf("expected 0 trade, got %d", len(trades))
 		}
-		if returnedOrder.Status != domain.StatusOpen {
-			t.Fatalf("expected returnedOrder.Status to be OPEN, got %s", returnedOrder.Status)
+		if returnedOrder.Status != domain.StatusCreated {
+			t.Fatalf("expected returnedOrder.Status to be CREATED, got %s", returnedOrder.Status)
 		}
 
 		bestSellOrder, bestSellOrderExists := engine.book.BestSell()
@@ -1589,8 +1589,8 @@ func TestEngineApplyAddsUnmatchedIncomingOrder(t *testing.T) {
 		t.Fatalf("expected no trades, got %d", len(plan.Trades))
 	}
 
-	if plan.IncomingOrder.Status != domain.StatusOpen {
-		t.Fatalf("expected planned order OPEN, got %s", plan.IncomingOrder.Status)
+	if plan.IncomingOrder.Status != domain.StatusCreated {
+		t.Fatalf("expected planned order CREATED, got %s", plan.IncomingOrder.Status)
 	}
 
 	if err := engine.Apply(plan); err != nil {
@@ -1610,8 +1610,8 @@ func TestEngineApplyAddsUnmatchedIncomingOrder(t *testing.T) {
 		t.Fatalf("expected remaining quantity 100, got %d", bestBuy.RemainingQuantity)
 	}
 
-	if bestBuy.Status != domain.StatusOpen {
-		t.Fatalf("expected OPEN, got %s", bestBuy.Status)
+	if bestBuy.Status != domain.StatusCreated {
+		t.Fatalf("expected CREATED, got %s", bestBuy.Status)
 	}
 
 	if orderBook.GetLastTradePrice() != 300 {

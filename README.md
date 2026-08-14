@@ -5,10 +5,10 @@ price-time priority rules used in exchange order books.
 
 ## Project overview
 
-The engine accepts BUY and SELL limit orders, matches them against an in-memory
-order book, and persists every resulting state change to PostgreSQL. Orders for
-the same symbol pass through one serialized command stream, giving them a
-deterministic processing order even when HTTP requests arrive concurrently.
+The engine accepts BUY and SELL limit orders through a bounded per-symbol
+submission queue. The HTTP path creates and persists the order before handing it
+to one background worker, while matching for the symbol remains sequential and
+deterministic even when HTTP requests arrive concurrently.
 
 The core backend currently supports:
 
@@ -17,8 +17,9 @@ The core backend currently supports:
 - Execution at the resting order's price
 - Integer-based prices and symbol tick-size validation
 - Opening-price-based daily price limits
-- Per-symbol, per-session order sequencing
+- Per-symbol, per-session order sequencing assigned before enqueue
 - Bounded worker queues for overload protection
+- Explicit `CREATED` to `PENDING` or `REJECTED` submission states
 - Transactional persistence of orders, trades, resting-order updates, and events
 - Staged in-memory mutation after successful database persistence
 - Aggregated, consistently read order book snapshots
@@ -38,10 +39,16 @@ partial fills as well as execution across multiple price levels.
 
 ### Go concurrency and backpressure
 
-Each symbol has one `OrderWorker` and one bounded Go channel. The worker processes
-submissions sequentially, preventing concurrent mutation of the same order book.
-When producers exceed the configured queue capacity, the API returns `503`
-instead of allowing unbounded memory growth.
+Each symbol has one `OrderWorker` and one bounded Go channel. Concurrent calls to
+`Submit` are serialized while the next session sequence is assigned, the
+`CREATED` order is inserted, and the enqueue result is recorded. A successful
+send changes the persisted status to `PENDING`; a full queue changes it to
+`REJECTED` and returns `503` instead of allowing unbounded memory growth.
+
+The queued command contains a readiness signal. The worker does not start
+matching until the HTTP submission path has finished saving `PENDING`. The
+worker then processes commands one at a time, preventing concurrent mutation of
+the same order book.
 
 ### Staged state changes
 
@@ -52,7 +59,10 @@ price.
 
 ### Transactional persistence
 
-One pgx transaction persists all database effects of a submission:
+Persistence currently occurs in two stages. Before enqueueing, `Submit` inserts
+the incoming order as `CREATED`, then records the enqueue result as `PENDING` or
+`REJECTED`. After a `PENDING` command reaches the worker, one pgx transaction is
+responsible for the matching result:
 
 - The final incoming order
 - Every affected resting-order update
@@ -79,21 +89,25 @@ the matching algorithm deterministic and independently testable.
 ```mermaid
 flowchart TD
     A[POST /orders] --> B[Gin HTTP handler]
-    B --> C[Bounded per-symbol OrderWorker queue]
+    B --> C[Validate and create order]
     C --> D[Assign next session sequence]
-    D --> E[Engine.Prepare]
-    E --> F[MatchPlan: incoming order, resting updates, trades]
-    F --> G[PostgresStore.PersistSubmission]
-    G --> H{PostgreSQL transaction}
-    H -->|Rollback| I[Return error; live book unchanged]
-    H -->|Commit| J[Engine.Apply]
-    J --> K[Update live book and last trade price]
-    K --> L[HTTP 201 response]
+    D --> E[Insert order as CREATED]
+    E --> F{Bounded queue send}
+    F -->|Full| G[Persist REJECTED and return 503]
+    F -->|Queued| H[Persist PENDING]
+    H --> I[Signal command ready]
+    I --> J[Return HTTP 201]
+    I --> K[Single per-symbol worker]
+    K --> L[Engine.Prepare]
+    L --> M[PersistSubmission transaction]
+    M -->|Rollback| N[Log background failure; live book unchanged]
+    M -->|Commit| O[Engine.Apply]
+    O --> P[Update live book and last trade price]
 ```
 
-The command is processed completely before the worker begins the next command
-for that symbol. This preserves the relationship between sequence assignment,
-database persistence, and in-memory application.
+The `201` response confirms that the order was created, successfully queued, and
+saved as `PENDING`; it does not contain the final matching result. The command is
+processed completely before the worker begins the next command for that symbol.
 
 ## Technology
 
@@ -130,6 +144,16 @@ PostgreSQL and process memory cannot participate in one distributed atomic
 transaction. The current ordering prevents memory changes when normal database
 persistence fails. A process failure after the database commit but before
 `Engine.Apply` requires the replay/recovery work planned for hardening.
+
+The queue is currently in memory. Graceful shutdown drains accepted commands,
+but ungraceful process failure can leave a persisted `PENDING` order unprocessed.
+Reloading those pending orders is planned recovery work and is not implemented
+yet.
+
+The staged submission refactor also still needs the background persistence path
+to update the already inserted incoming order. `PersistSubmission` currently
+attempts to insert it again, so this integration must be completed before the
+asynchronous submission path is considered finished.
 
 ## Roadmap
 
@@ -271,9 +295,17 @@ curl -X POST http://localhost:8080/orders \
   -d '{"participantId":1,"symbol":"ASELS","side":"BUY","price":35100,"quantity":100}'
 ```
 
-A successful submission returns `201 Created` with the final order and any
-generated trades. The request waits for its serialized submission to complete;
-a full worker queue returns `503 Service Unavailable`.
+A successful enqueue currently returns `201 Created`:
+
+```json
+{
+  "message": "Order Created"
+}
+```
+
+This response confirms creation and enqueueing, not final matching. Matching and
+final persistence continue in the per-symbol worker. A full worker queue returns
+`503 Service Unavailable` after the order is recorded as `REJECTED`.
 
 ### Read an order book snapshot
 

@@ -17,6 +17,8 @@ const (
 type OrderStatus string
 
 const (
+	StatusCreated         OrderStatus = "CREATED"
+	StatusPending         OrderStatus = "PENDING"
 	StatusOpen            OrderStatus = "OPEN"
 	StatusPartiallyFilled OrderStatus = "PARTIALLY_FILLED"
 	StatusFilled          OrderStatus = "FILLED"
@@ -99,7 +101,7 @@ func NewOrder(
 		Price:             price,
 		Quantity:          quantity,
 		RemainingQuantity: quantity,
-		Status:            StatusOpen,
+		Status:            StatusCreated,
 		CreatedAt:         createdAt,
 	}, nil
 }

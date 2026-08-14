@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
 
 	"bist-matching-engine/internal/domain"
 	"bist-matching-engine/internal/matching"
+	"bist-matching-engine/internal/storage"
 
 	"github.com/google/uuid"
 )
@@ -19,43 +21,36 @@ var (
 	ErrWorkerStopped       = errors.New("order worker is stopped")
 )
 
-type submissionPersister interface {
-	PersistSubmission(context.Context, domain.Order, []domain.Order, []domain.Trade, []domain.OrderEvent) error
-}
-
-type submissionCommand struct {
-	ctx      context.Context
-	request  SubmitOrderRequest
-	response chan submissionResponse
-}
-
-type submissionResponse struct {
-	result SubmitOrderResult
-	err    error
-}
-
 type OrderWorker struct {
-	store        submissionPersister
-	engine       *matching.Engine
-	symbol       domain.Symbol
-	commands     chan submissionCommand
-	nextSequence int64
+	ctx             context.Context
+	store           *storage.PostgresStore
+	engine          *matching.Engine
+	symbol          domain.Symbol
+	queue           chan queueCommand
+	submissionMutex sync.Mutex
+	nextSequence    int64
 
 	mutex   sync.RWMutex
 	stopped bool
 	done    chan struct{}
 }
 
-func NewOrderWorker(store submissionPersister, engine *matching.Engine, symbol domain.Symbol, lastSequence int64, queueCapacity int) (*OrderWorker, error) {
+type queueCommand struct {
+	order *domain.Order
+	ready chan bool
+}
+
+func NewOrderWorker(store *storage.PostgresStore, engine *matching.Engine, symbol domain.Symbol, lastSequence int64, queueCapacity int) (*OrderWorker, error) {
 	if queueCapacity <= 0 {
 		return nil, errors.New("queue capacity must be > 0")
 	}
 
 	worker := &OrderWorker{
+		ctx:          context.Background(),
 		store:        store,
 		engine:       engine,
 		symbol:       symbol,
-		commands:     make(chan submissionCommand, queueCapacity),
+		queue:        make(chan queueCommand, queueCapacity),
 		nextSequence: lastSequence + 1,
 		done:         make(chan struct{}),
 	}
@@ -65,54 +60,73 @@ func NewOrderWorker(store submissionPersister, engine *matching.Engine, symbol d
 	return worker, nil
 }
 
-func (worker *OrderWorker) Submit(ctx context.Context, request SubmitOrderRequest) (SubmitOrderResult, error) {
+func (worker *OrderWorker) Submit(ctx context.Context, request SubmitOrderRequest) error {
 	if err := request.Validate(); err != nil {
-		return SubmitOrderResult{}, fmt.Errorf("%w: %w", ErrInvalidOrder, err)
+		return fmt.Errorf("%w: %w", ErrInvalidOrder, err)
 	}
 
 	if !strings.EqualFold(request.Symbol, worker.symbol.Code) {
-		return SubmitOrderResult{}, fmt.Errorf("%w: symbol does not match worker", ErrInvalidOrder)
+		return fmt.Errorf("%w: symbol does not match worker", ErrInvalidOrder)
 	}
 
 	request.Symbol = worker.symbol.Code
 
-	command := submissionCommand{
-		ctx:      ctx,
-		request:  request,
-		response: make(chan submissionResponse, 1),
-	}
-
-	worker.mutex.RLock()
+	worker.submissionMutex.Lock()
+	defer worker.submissionMutex.Unlock()
 
 	if worker.stopped {
-		worker.mutex.RUnlock()
-		return SubmitOrderResult{}, ErrWorkerStopped
+		return ErrWorkerStopped
 	}
 
+	order, err := CreateOrderFromSubmitOrderRequest(worker, request)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidOrder, err)
+	}
+
+	order.Sequence = worker.nextSequence
+
+	err = worker.store.InsertOrder(ctx, order)
+	if err != nil {
+		log.Printf("Insert order failed: %v", err)
+		return err
+	}
+
+	worker.nextSequence++
+
+	command := queueCommand{
+		order: &order,
+		ready: make(chan bool, 1),
+	}
+
+	var returnErr error = nil
 	select {
-		case worker.commands <- command:
-			worker.mutex.RUnlock()
+	case worker.queue <- command:
+		order.Status = domain.StatusPending
 
-		default:
-			worker.mutex.RUnlock()
-			return SubmitOrderResult{}, ErrSubmissionQueueFull
+	default:
+		order.Status = domain.StatusRejected
+		returnErr = ErrSubmissionQueueFull
 	}
 
-	select {
-		case response := <-command.response:
-			return response.result, response.err
-
-		case <-ctx.Done():
-			return SubmitOrderResult{}, ctx.Err()
+	err = worker.store.UpdateOrders(ctx, []domain.Order{order})
+	if err != nil {
+		log.Printf("Update order failed: %v", err)
+		command.ready <- false
+		return err
 	}
+	command.ready <- true
+
+	return returnErr
 }
 
 func (worker *OrderWorker) Stop() {
 	worker.mutex.Lock()
+	worker.submissionMutex.Lock()
+	defer worker.submissionMutex.Unlock()
 
 	if !worker.stopped {
 		worker.stopped = true
-		close(worker.commands)
+		close(worker.queue)
 	}
 
 	worker.mutex.Unlock()
@@ -123,48 +137,38 @@ func (worker *OrderWorker) Stop() {
 func (worker *OrderWorker) run() {
 	defer close(worker.done)
 
-	for command := range worker.commands {
-		result, err := worker.process(
-			command.ctx,
-			command.request,
-		)
-
-		command.response <- submissionResponse{
-			result: result,
-			err:    err,
+	for command := range worker.queue {
+		ready := <-command.ready
+		order := command.order
+		if !ready {
+			log.Printf("Order with sequence %d is not ready, update have most likely failed, skipping", order.Sequence)
+			continue
 		}
+		worker.mutex.RLock()
+
+		_, _, err := worker.process(worker.ctx, *order)
+		if err != nil {
+			log.Printf("Error occured on worker, order:  %v", order)
+		}
+
+		worker.mutex.RUnlock()
 	}
 }
 
-func (worker *OrderWorker) process(ctx context.Context, request SubmitOrderRequest) (SubmitOrderResult, error) {
+func (worker *OrderWorker) process(ctx context.Context, order domain.Order) ([]domain.OrderEvent, matching.MatchPlan, error) {
 	if err := ctx.Err(); err != nil {
-		return SubmitOrderResult{}, err
+		return []domain.OrderEvent{}, matching.MatchPlan{}, err
 	}
-
-	order, err := domain.NewOrder(
-		uuid.NewString(),
-		request.ParticipantId,
-		worker.symbol,
-		worker.engine.SessionDate(),
-		request.Side,
-		request.Price,
-		request.Quantity,
-		time.Now().UTC(),
-	)
-	if err != nil {
-		return SubmitOrderResult{}, fmt.Errorf("%w: %w", ErrInvalidOrder, err)
-	}
-
-	order.Sequence = worker.nextSequence
 
 	plan, err := worker.engine.Prepare(order)
 	if err != nil {
-		return SubmitOrderResult{}, err
+		return []domain.OrderEvent{}, matching.MatchPlan{}, err
 	}
 
 	events, err := buildSubmissionEvents(plan)
 	if err != nil {
-		return SubmitOrderResult{}, fmt.Errorf("build submission events: %w", err)
+		err = fmt.Errorf("build submission events: %w", err)
+		return []domain.OrderEvent{}, matching.MatchPlan{}, err
 	}
 
 	err = worker.store.PersistSubmission(
@@ -175,18 +179,27 @@ func (worker *OrderWorker) process(ctx context.Context, request SubmitOrderReque
 		events,
 	)
 	if err != nil {
-		return SubmitOrderResult{}, fmt.Errorf("persist submission: %w", err)
+		err = fmt.Errorf("persist submission: %w", err)
+		return []domain.OrderEvent{}, matching.MatchPlan{}, err
 	}
-
-	// The sequence is persisted, so it must never be reused.
-	worker.nextSequence++
 
 	if err := worker.engine.Apply(plan); err != nil {
-		return SubmitOrderResult{}, fmt.Errorf("apply persisted match plan: %w", err)
+		err = fmt.Errorf("apply persisted match plan: %w", err)
+		return []domain.OrderEvent{}, matching.MatchPlan{}, err
 	}
 
-	return SubmitOrderResult{
-		Order:  plan.IncomingOrder,
-		Trades: plan.Trades,
-	}, nil
+	return events, plan, nil
+}
+
+func CreateOrderFromSubmitOrderRequest(worker *OrderWorker, request SubmitOrderRequest) (domain.Order, error) {
+	return domain.NewOrder(
+		uuid.NewString(),
+		request.ParticipantId,
+		worker.symbol,
+		worker.engine.SessionDate(),
+		request.Side,
+		request.Price,
+		request.Quantity,
+		time.Now().UTC(),
+	)
 }
