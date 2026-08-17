@@ -11,7 +11,6 @@ import (
 
 	"bist-matching-engine/internal/domain"
 	"bist-matching-engine/internal/matching"
-	"bist-matching-engine/internal/storage"
 
 	"github.com/google/uuid"
 )
@@ -21,9 +20,15 @@ var (
 	ErrWorkerStopped       = errors.New("order worker is stopped")
 )
 
+type orderWorkerStore interface {
+	InsertOrder(context.Context, domain.Order) error
+	UpdateOrders(context.Context, []domain.Order) error
+	PersistSubmission(context.Context, domain.Order, []domain.Order, []domain.Trade, []domain.OrderEvent) error
+}
+
 type OrderWorker struct {
 	ctx             context.Context
-	store           *storage.PostgresStore
+	store           orderWorkerStore
 	engine          *matching.Engine
 	symbol          domain.Symbol
 	queue           chan queueCommand
@@ -40,7 +45,7 @@ type queueCommand struct {
 	ready chan bool
 }
 
-func NewOrderWorker(store *storage.PostgresStore, engine *matching.Engine, symbol domain.Symbol, lastSequence int64, queueCapacity int) (*OrderWorker, error) {
+func NewOrderWorker(store orderWorkerStore, engine *matching.Engine, symbol domain.Symbol, lastSequence int64, queueCapacity int) (*OrderWorker, error) {
 	if queueCapacity <= 0 {
 		return nil, errors.New("queue capacity must be > 0")
 	}
