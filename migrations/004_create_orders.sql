@@ -22,7 +22,14 @@ CREATE TABLE IF NOT EXISTS orders (
         AND remaining_quantity <= quantity
     ),
     status TEXT NOT NULL CHECK (
-        status IN ('OPEN', 'PARTIALLY_FILLED', 'FILLED', 'REJECTED')
+        status IN (
+            'CREATED', 
+            'PENDING',
+            'OPEN', 
+            'PARTIALLY_FILLED', 
+            'FILLED',
+            'REJECTED'
+        )
     ),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()

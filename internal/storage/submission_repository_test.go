@@ -52,6 +52,24 @@ func TestPersistSubmissionRollsBackWhenTradeInsertFails(t *testing.T) {
 
 	order.Sequence = lastSequence + 1
 
+	if err := store.InsertOrder(ctx, order); err != nil {
+		t.Fatalf("InsertOrder failed: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if _, err := store.pool.Exec(ctx, `DELETE FROM trades WHERE buy_order_id = $1`, order.ID); err != nil {
+			t.Errorf("cleanup trades: %v", err)
+		}
+
+		if _, err := store.pool.Exec(ctx, `DELETE FROM orders WHERE id = $1`, order.ID); err != nil {
+			t.Errorf("cleanup order: %v", err)
+		}
+	})
+
+	finalOrder := order
+	finalOrder.RemainingQuantity = 9
+	finalOrder.Status = domain.StatusPartiallyFilled
+
 	duplicateTradeID := uuid.NewString()
 
 	trades := []domain.Trade{
@@ -77,7 +95,7 @@ func TestPersistSubmissionRollsBackWhenTradeInsertFails(t *testing.T) {
 
 	err = store.PersistSubmission(
 		ctx,
-		order,
+		finalOrder,
 		nil,
 		trades,
 		nil,
@@ -86,19 +104,24 @@ func TestPersistSubmissionRollsBackWhenTradeInsertFails(t *testing.T) {
 		t.Fatal("expected transaction failure")
 	}
 
-	var orderCount int
+	var storedRemainingQuantity int64
+	var storedStatus domain.OrderStatus
 
 	err = store.pool.QueryRow(
 		ctx,
-		`SELECT COUNT(*) FROM orders WHERE id = $1`,
+		`SELECT remaining_quantity, status FROM orders WHERE id = $1`,
 		order.ID,
-	).Scan(&orderCount)
+	).Scan(&storedRemainingQuantity, &storedStatus)
 	if err != nil {
-		t.Fatalf("query order count: %v", err)
+		t.Fatalf("query order state: %v", err)
 	}
 
-	if orderCount != 0 {
-		t.Fatalf("expected incoming order rollback, found %d rows", orderCount)
+	if storedRemainingQuantity != order.RemainingQuantity {
+		t.Fatalf("expected remaining quantity %d after rollback, got %d", order.RemainingQuantity, storedRemainingQuantity)
+	}
+
+	if storedStatus != order.Status {
+		t.Fatalf("expected status %s after rollback, got %s", order.Status, storedStatus)
 	}
 
 	var tradeCount int

@@ -140,37 +140,44 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 	}
 	t.Cleanup(worker.Stop)
 
-	buyOrder, err := CreateOrderFromSubmitOrderRequest(worker, submitBuyOrderRequest)
-	if err != nil{
-		t.Fatalf("CreateOrderFromSubmitOrderRequest: %v", err)
+	if err := worker.Submit(ctx, submitBuyOrderRequest); err != nil {
+		t.Fatalf("Submit BUY: %v", err)
 	}
 
-	_, buyOrderPlan, err := worker.process(ctx, buyOrder)
-	if err != nil {
-		t.Fatalf("process BUY: %v", err)
+	if err := worker.Submit(ctx, submitSellOrderRequest); err != nil {
+		t.Fatalf("Submit SELL: %v", err)
 	}
 
+	worker.Stop()
 
-	sellOrder, err := CreateOrderFromSubmitOrderRequest(worker, submitSellOrderRequest)
-	if err != nil{
-		t.Fatalf("CreateOrderFromSubmitOrderRequest: %v", err)
-	}
-	_, sellOrderPlan, err := worker.process(ctx, sellOrder)
-	if err != nil {
-		t.Fatalf("process SELL: %v", err)
-	}
-
+	var buyOrderID string
 	var buySequence int64
-	var sellSequence int64
-
+	var buyStatus domain.OrderStatus
+	var buyRemainingQuantity int64
 
 	err = pool.QueryRow(
 		ctx,
-		`SELECT sequence_number FROM orders WHERE id = $1`,
-		sellOrderPlan.IncomingOrder.ID,
-	).Scan(&sellSequence)
+		`SELECT id, sequence_number, status, remaining_quantity FROM orders WHERE participant_id = $1 AND side = $2`,
+		participantID,
+		domain.SideBuy,
+	).Scan(&buyOrderID, &buySequence, &buyStatus, &buyRemainingQuantity)
 	if err != nil {
-		t.Fatalf("query SELL sequence: %v", err)
+		t.Fatalf("query BUY order: %v", err)
+	}
+
+	var sellOrderID string
+	var sellSequence int64
+	var sellStatus domain.OrderStatus
+	var sellRemainingQuantity int64
+
+	err = pool.QueryRow(
+		ctx,
+		`SELECT id, sequence_number, status, remaining_quantity FROM orders WHERE participant_id = $1 AND side = $2`,
+		participantID,
+		domain.SideSell,
+	).Scan(&sellOrderID, &sellSequence, &sellStatus, &sellRemainingQuantity)
+	if err != nil {
+		t.Fatalf("query SELL order: %v", err)
 	}
 
 	if buySequence != lastSequence+1 {
@@ -179,19 +186,6 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 
 	if sellSequence != lastSequence+2 {
 		t.Errorf("unexpected persisted SELL sequence: %d", sellSequence)
-	}
-
-	tradeID := sellOrderPlan.Trades[0].ID
-
-	var buyStatus domain.OrderStatus
-	var buyRemainingQuantity int64
-
-	err = pool.QueryRow(
-		ctx, `SELECT status, remaining_quantity FROM orders WHERE id = $1`,
-		buyOrderPlan.IncomingOrder.ID,
-	).Scan(&buyStatus, &buyRemainingQuantity)
-	if err != nil {
-		t.Fatalf("query BUY order: %v", err)
 	}
 
 	if buyStatus != domain.StatusPartiallyFilled {
@@ -207,17 +201,6 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 			"expected BUY remaining quantity 6, got %d",
 			buyRemainingQuantity,
 		)
-	}
-
-	// Verify the incoming SELL's final database state.
-	var sellStatus domain.OrderStatus
-	var sellRemainingQuantity int64
-
-	err = pool.QueryRow(ctx, `SELECT status, remaining_quantity FROM orders WHERE id = $1`,
-		sellOrderPlan.IncomingOrder.ID,
-	).Scan(&sellStatus, &sellRemainingQuantity)
-	if err != nil {
-		t.Fatalf("query SELL order: %v", err)
 	}
 
 	if sellStatus != domain.StatusFilled {
@@ -236,15 +219,13 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 	}
 
 	// Verify the persisted trade.
-	var buyOrderID string
 	var sellOrderIDFromDB string
 	var tradePrice int64
 	var tradeQuantity int64
 
-	err = pool.QueryRow(ctx, `SELECT buy_order_id, sell_order_id, price, quantity FROM trades WHERE id = $1`,
-		tradeID,
+	err = pool.QueryRow(ctx, `SELECT sell_order_id, price, quantity FROM trades WHERE buy_order_id = $1`,
+		buyOrderID,
 	).Scan(
-		&buyOrderID,
 		&sellOrderIDFromDB,
 		&tradePrice,
 		&tradeQuantity,
@@ -253,18 +234,10 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 		t.Fatalf("query trade: %v", err)
 	}
 
-	if buyOrderID != buyOrderPlan.IncomingOrder.ID {
-		t.Errorf(
-			"expected trade BUY order ID %s, got %s",
-			buyOrderPlan.IncomingOrder.ID,
-			buyOrderID,
-		)
-	}
-
-	if sellOrderIDFromDB != sellOrderPlan.IncomingOrder.ID {
+	if sellOrderIDFromDB != sellOrderID {
 		t.Errorf(
 			"expected trade SELL order ID %s, got %s",
-			sellOrderPlan.IncomingOrder.ID,
+			sellOrderID,
 			sellOrderIDFromDB,
 		)
 	}

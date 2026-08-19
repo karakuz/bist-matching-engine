@@ -14,44 +14,8 @@ func (store *PostgresStore) PersistSubmission(ctx context.Context, incomingOrder
 	}
 	defer tx.Rollback(ctx)
 
-	const insertOrderQuery = `
-		INSERT INTO orders (
-			id,
-			sequence_number,
-			participant_id,
-			symbol,
-			session_date,
-			side,
-			price,
-			quantity,
-			remaining_quantity,
-			status,
-			created_at
-		)
-		VALUES (
-			$1, $2, $3, $4, $5, $6,
-			$7, $8, $9, $10, $11
-		)
-	`
-
-	_, err = tx.Exec(
-		ctx,
-		insertOrderQuery,
-		incomingOrder.ID,
-		incomingOrder.Sequence,
-		incomingOrder.ParticipantID,
-		incomingOrder.Symbol.Code,
-		incomingOrder.SessionDate,
-		incomingOrder.Side,
-		incomingOrder.Price,
-		incomingOrder.Quantity,
-		incomingOrder.RemainingQuantity,
-		incomingOrder.Status,
-		incomingOrder.CreatedAt,
-	)
-	if err != nil {
-		return fmt.Errorf("insert incoming order: %w", err)
-	}
+	ordersToUpdate := []domain.Order{incomingOrder}
+	ordersToUpdate = append(ordersToUpdate, restingOrderUpdates...)
 
 	const updateOrderQuery = `
 		UPDATE orders
@@ -62,7 +26,7 @@ func (store *PostgresStore) PersistSubmission(ctx context.Context, incomingOrder
 		WHERE id = $1
 	`
 
-	for _, order := range restingOrderUpdates {
+	for _, order := range ordersToUpdate {
 		commandTag, err := tx.Exec(
 			ctx,
 			updateOrderQuery,
