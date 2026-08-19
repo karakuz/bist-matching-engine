@@ -128,8 +128,8 @@ func RegisterRoutes(
 			return
 		}
 
-		c.JSON(stdhttp.StatusCreated, map[string]string{
-			"message": "Order Created",
+		c.JSON(stdhttp.StatusAccepted, map[string]string{
+			"message": "Order Queued",
 		})
 	})
 }
