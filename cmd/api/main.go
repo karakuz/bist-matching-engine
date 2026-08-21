@@ -2,9 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
-	"fmt"
+	"time"
 
 	httptransport "bist-matching-engine/internal/http"
 	"bist-matching-engine/internal/storage"
@@ -26,7 +27,7 @@ func run() error {
 
 	pool, err := storage.NewPostgresPoolFromEnv(ctx)
 	if err != nil {
-		return fmt.Errorf("create postgres pool: %w",err)
+		return fmt.Errorf("create postgres pool: %w", err)
 	}
 	defer pool.Close()
 
@@ -34,7 +35,7 @@ func run() error {
 
 	engines, err := initializeEngines(ctx, store)
 	if err != nil {
-		return fmt.Errorf("initialize engines: %w",err)
+		return fmt.Errorf("initialize engines: %w", err)
 	}
 
 	workers, err := initializeWorkers(
@@ -53,9 +54,29 @@ func run() error {
 		}
 	}()
 
-	router := gin.Default()
+	router := gin.New()
+
+	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
+		latencyMilliseconds := float64(param.Latency) / float64(time.Millisecond)
+
+		return fmt.Sprintf(
+			"[GIN] %s | %3d | %9.3f ms | %15s | %-7s %q\n",
+			param.TimeStamp.Format("2006/01/02 - 15:04:05"),
+			param.StatusCode,
+			latencyMilliseconds,
+			param.ClientIP,
+			param.Method,
+			param.Path,
+		)
+	}))
+
+	router.Use(gin.Recovery())
+
+	
+
 	httptransport.RegisterRoutes(router, engines, workers)
 
+	
 	if err := router.Run(":8080"); err != nil {
 		return fmt.Errorf("run HTTP server: %w", err)
 	}
