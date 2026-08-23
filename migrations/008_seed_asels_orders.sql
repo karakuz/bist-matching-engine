@@ -4,8 +4,10 @@ WITH seed_orders AS (
         order_number AS sequence_number,
         'BUY'::TEXT AS side,
         35000 - (50 * (((order_number - 1) % 6) + 1)) AS price,
-        CURRENT_DATE + TIME '09:30:00'
-            + (order_number * INTERVAL '1 second') AS created_at
+        (
+            CURRENT_DATE + TIME '09:30:00'
+                + (order_number * INTERVAL '1 second')
+        ) AT TIME ZONE 'Europe/Istanbul' AS created_at
     FROM generate_series(1, 26) AS order_number
 
     UNION ALL
@@ -15,8 +17,10 @@ WITH seed_orders AS (
         order_number + 26 AS sequence_number,
         'SELL'::TEXT AS side,
         35000 + (50 * (((order_number - 1) % 6) + 1)) AS price,
-        CURRENT_DATE + TIME '09:30:00'
-            + ((order_number + 26) * INTERVAL '1 second') AS created_at
+        (
+            CURRENT_DATE + TIME '09:30:00'
+                + ((order_number + 26) * INTERVAL '1 second')
+        ) AT TIME ZONE 'Europe/Istanbul' AS created_at
     FROM generate_series(1, 26) AS order_number
 ),
 orders_with_participants AS (
