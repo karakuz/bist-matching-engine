@@ -24,12 +24,15 @@ type storeCall struct {
 type fakeOrderWorkerStore struct {
 	calls []storeCall
 
-	updateStartedSignal chan bool
-	updateSignal        chan bool
-	updatedSignal       chan bool
+	updateStartedSignal   chan bool
+	updateSignal          chan bool
+	updatedSignal         chan bool
+	updatedAsFailedSignal chan bool
 
 	persistSubmissionStartedSignal chan bool
+	persistSubmissionEndedSignal   chan bool
 	startPersistSubmission         chan bool
+	failPersistSubmission          bool
 
 	failInsertOrder       bool
 	insertSequenceAttempt chan int64
@@ -70,6 +73,9 @@ func (store *fakeOrderWorkerStore) UpdateOrders(ctx context.Context, orders []do
 			method: "update",
 			order:  order,
 		})
+		if order.Status == domain.StatusFailed {
+			store.updatedAsFailedSignal <- true
+		}
 	}
 
 	if store.failUpdateOrder {
@@ -84,6 +90,12 @@ func (store *fakeOrderWorkerStore) UpdateOrders(ctx context.Context, orders []do
 }
 
 func (store *fakeOrderWorkerStore) PersistSubmission(ctx context.Context, incoming domain.Order, resting []domain.Order, trades []domain.Trade, events []domain.OrderEvent) error {
+	defer func() {
+		if store.persistSubmissionEndedSignal != nil {
+			store.persistSubmissionEndedSignal <- true
+		}
+	}()
+
 	store.isPersistSubmissionCalled = true
 
 	if store.persistSubmissionStartedSignal != nil {
@@ -91,6 +103,9 @@ func (store *fakeOrderWorkerStore) PersistSubmission(ctx context.Context, incomi
 	}
 	if store.startPersistSubmission != nil {
 		<-store.startPersistSubmission
+	}
+	if store.failPersistSubmission {
+		return errors.New("Failed by store.failPersisSubmission")
 	}
 	return nil
 }
@@ -479,5 +494,42 @@ func TestOrderWorkerAcceptsPricesAtLimits(t *testing.T) {
 				t.Fatalf("expected insert and update storage calls, got %d", len(store.calls))
 			}
 		})
+	}
+}
+
+func TestOrderWorkerReturnsFailedAfterProccessStarts(t *testing.T) {
+	store := &fakeOrderWorkerStore{
+		failPersistSubmission:        true,
+		persistSubmissionEndedSignal: make(chan bool),
+		updatedAsFailedSignal:        make(chan bool),
+	}
+
+	symbolCode := "ASELS"
+	worker := getTestWorker(t, symbolCode, store, 1)
+
+	ctx := context.Background()
+	request := SubmitOrderRequest{
+		ParticipantId: 1,
+		Symbol:        symbolCode,
+		Side:          domain.SideBuy,
+		Price:         30000,
+		Quantity:      10,
+	}
+
+	requestErr := worker.Submit(ctx, request)
+	if requestErr != nil {
+		t.Fatalf("Expected no error on request submit, got: %v", requestErr)
+	}
+
+	<-store.persistSubmissionEndedSignal
+	<-store.updatedAsFailedSignal
+
+	call := store.calls[2]
+	if call.method != "update" {
+		t.Fatalf("Expected update method, got: %s", call.method)
+	}
+
+	if call.order.Status != domain.StatusFailed {
+		t.Fatalf("Expected status failed, got: %v", call.order.Status)
 	}
 }

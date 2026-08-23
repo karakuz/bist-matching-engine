@@ -23,6 +23,7 @@ const (
 	StatusPartiallyFilled OrderStatus = "PARTIALLY_FILLED"
 	StatusFilled          OrderStatus = "FILLED"
 	StatusRejected        OrderStatus = "REJECTED"
+	StatusFailed          OrderStatus = "FAILED"
 )
 
 type Order struct {

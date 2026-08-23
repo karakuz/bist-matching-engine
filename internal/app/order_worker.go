@@ -160,7 +160,18 @@ func (worker *OrderWorker) run() {
 
 		_, _, err := worker.process(worker.ctx, *order)
 		if err != nil {
-			log.Printf("Error occured on worker, order:  %v", order)
+			log.Printf(
+				"worker failed to process order id=%s sequence=%d: %v",
+				order.ID,
+				order.Sequence,
+				err,
+			)
+
+			order.Status = domain.StatusFailed
+			err = worker.store.UpdateOrders(worker.ctx, []domain.Order{*order})
+			if err != nil {
+				log.Printf("[Worker Error] Update order failed: %v", err)
+			}
 		}
 
 		worker.mutex.RUnlock()

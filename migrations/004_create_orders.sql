@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS orders (
             'OPEN', 
             'PARTIALLY_FILLED', 
             'FILLED',
-            'REJECTED'
+            'REJECTED',
+            'FAILED'
         )
     ),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
