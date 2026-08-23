@@ -8,7 +8,7 @@ import (
 var (
 	ErrEmptySymbol     = errors.New("symbol cannot be empty")
 	ErrInvalidSymbol   = errors.New("symbol code can be max 5 characters")
-	ErrInvalidTickSize = errors.New("symbol cannot be empty")
+	ErrInvalidTickSize = errors.New("invalid tick size")
 )
 
 type Symbol struct {

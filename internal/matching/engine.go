@@ -26,6 +26,13 @@ func NewEngine(orderBook *book.Book) *Engine {
 	return &Engine{book: orderBook}
 }
 
+func (engine *Engine) PriceLimits() (int64, int64) {
+	lowerPriceLimit := engine.book.GetLowerPriceLimit()
+	upperPriceLimit := engine.book.GetUpperPriceLimit()
+
+	return lowerPriceLimit, upperPriceLimit
+}
+
 func newTrade(order domain.Order, restingOrder domain.Order, quantity int64) domain.Trade {
 	var BuyOrderID string
 	var SellOrderID string

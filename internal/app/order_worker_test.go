@@ -377,3 +377,107 @@ func TestOrderWorkerDoesNotConsumeSequenceWhenInsertFails(t *testing.T) {
 		t.Fatalf("Expected firstAttemptedSequenceNumber == secondAttemptedSequenceNumber, got false")
 	}
 }
+
+func TestNewOrderWorkerCopiesPriceLimits(t *testing.T) {
+	store := &fakeOrderWorkerStore{}
+	worker := getTestWorker(t, "ASELS", store, 10)
+
+	const expectedLowerPriceLimit int64 = 27000
+	const expectedUpperPriceLimit int64 = 33000
+
+	if worker.lowerPriceLimit != expectedLowerPriceLimit {
+		t.Fatalf("expected lower price limit %d, got %d", expectedLowerPriceLimit, worker.lowerPriceLimit)
+	}
+
+	if worker.upperPriceLimit != expectedUpperPriceLimit {
+		t.Fatalf("expected upper price limit %d, got %d", expectedUpperPriceLimit, worker.upperPriceLimit)
+	}
+}
+
+func TestOrderWorkerRejectsPriceOutsideLimitsBeforeStorage(t *testing.T) {
+	tests := []struct {
+		name  string
+		price int64
+	}{
+		{
+			name:  "below lower price limit",
+			price: 26990,
+		},
+		{
+			name:  "above upper price limit",
+			price: 33010,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &fakeOrderWorkerStore{}
+			worker := getTestWorker(t, "ASELS", store, 10)
+			initialNextSequence := worker.nextSequence
+
+			request := SubmitOrderRequest{
+				ParticipantId: 1,
+				Symbol:        "ASELS",
+				Side:          domain.SideBuy,
+				Price:         test.price,
+				Quantity:      10,
+			}
+
+			submitErr := worker.Submit(context.Background(), request)
+			if !errors.Is(submitErr, ErrInvalidOrder) {
+				t.Fatalf("expected ErrInvalidOrder, got %v", submitErr)
+			}
+
+			if !errors.Is(submitErr, book.ErrPriceOutsideAllowedRange) {
+				t.Fatalf("expected ErrPriceOutsideAllowedRange, got %v", submitErr)
+			}
+
+			if len(store.calls) != 0 {
+				t.Fatalf("expected no storage calls, got %d", len(store.calls))
+			}
+
+			if worker.nextSequence != initialNextSequence {
+				t.Fatalf("expected next sequence to remain %d, got %d", initialNextSequence, worker.nextSequence)
+			}
+		})
+	}
+}
+
+func TestOrderWorkerAcceptsPricesAtLimits(t *testing.T) {
+	tests := []struct {
+		name  string
+		price int64
+	}{
+		{
+			name:  "lower price limit",
+			price: 27000,
+		},
+		{
+			name:  "upper price limit",
+			price: 33000,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &fakeOrderWorkerStore{}
+			worker := getTestWorker(t, "ASELS", store, 10)
+
+			request := SubmitOrderRequest{
+				ParticipantId: 1,
+				Symbol:        "ASELS",
+				Side:          domain.SideBuy,
+				Price:         test.price,
+				Quantity:      10,
+			}
+
+			if err := worker.Submit(context.Background(), request); err != nil {
+				t.Fatalf("expected price at limit to be accepted, got %v", err)
+			}
+
+			if len(store.calls) != 2 {
+				t.Fatalf("expected insert and update storage calls, got %d", len(store.calls))
+			}
+		})
+	}
+}

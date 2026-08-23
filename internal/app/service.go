@@ -4,12 +4,11 @@ import (
 	"errors"
 	"strings"
 
-
+	"bist-matching-engine/internal/book"
 	"bist-matching-engine/internal/domain"
 )
 
 var ErrInvalidOrder = errors.New("invalid order")
-
 
 type SubmitOrderRequest struct {
 	ParticipantId int64       `json:"participantId"`
@@ -24,7 +23,7 @@ type SubmitOrderResult struct {
 	Trades []domain.Trade
 }
 
-func (request SubmitOrderRequest) Validate() error {
+func (request SubmitOrderRequest) Validate(worker *OrderWorker) error {
 	if request.ParticipantId <= 0 {
 		return domain.ErrInvalidParticipantID
 	}
@@ -46,6 +45,14 @@ func (request SubmitOrderRequest) Validate() error {
 		return domain.ErrInvalidQty
 	}
 
+	tickSizeErr := worker.symbol.ValidateTickOfPrice(request.Price)
+	if tickSizeErr != nil {
+		return tickSizeErr
+	}
+
+	isNotWithinPriceLimits := request.Price < worker.lowerPriceLimit || request.Price > worker.upperPriceLimit
+	if isNotWithinPriceLimits {
+		return book.ErrPriceOutsideAllowedRange
+	}
 	return nil
 }
-

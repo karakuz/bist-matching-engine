@@ -44,9 +44,9 @@ type Book struct {
 func (book *Book) Add(orders ...Order) error {
 	//check all order prices - whether they fit within limits
 	for _, order := range orders {
-		isWithinLimit := book.lowerPriceLimit <= order.Price && book.upperPriceLimit >= order.Price
-		if !isWithinLimit {
-			return ErrPriceOutsideAllowedRange
+		validateWithinPriceLimitErr := book.validateWithinPriceLimit(order.Price)
+		if validateWithinPriceLimitErr != nil {
+			return validateWithinPriceLimitErr
 		}
 	}
 
@@ -366,10 +366,19 @@ func (book *Book) GetLowerPriceLimit() int64 {
 	return book.lowerPriceLimit
 }
 
+func (book *Book) validateWithinPriceLimit(price int64) error {
+	isWithinPriceLimit := price <= book.upperPriceLimit && price >= book.lowerPriceLimit
+	if !isWithinPriceLimit {
+		return ErrPriceOutsideAllowedRange
+	}
+
+	return nil
+}
+
 func (book *Book) MatchCandidates(order Order) ([]Order, error) {
 	incomingSide := order.Side
 	incomingPrice := order.Price
-	
+
 	var prices []int64
 	var levels map[int64][]Order
 
@@ -402,7 +411,7 @@ func (book *Book) MatchCandidates(order Order) ([]Order, error) {
 	}
 
 	candidates := make([]Order, 0)
-	remainingMatches  := order.RemainingQuantity
+	remainingMatches := order.RemainingQuantity
 
 	if remainingMatches <= 0 {
 		return candidates, nil

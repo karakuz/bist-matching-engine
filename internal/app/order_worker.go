@@ -38,6 +38,9 @@ type OrderWorker struct {
 	mutex   sync.RWMutex
 	stopped bool
 	done    chan struct{}
+
+	lowerPriceLimit int64
+	upperPriceLimit int64
 }
 
 type queueCommand struct {
@@ -50,14 +53,18 @@ func NewOrderWorker(store orderWorkerStore, engine *matching.Engine, symbol doma
 		return nil, errors.New("queue capacity must be > 0")
 	}
 
+	lowerPriceLimit, upperPriceLimit := engine.PriceLimits()
+
 	worker := &OrderWorker{
-		ctx:          context.Background(),
-		store:        store,
-		engine:       engine,
-		symbol:       symbol,
-		queue:        make(chan queueCommand, queueCapacity),
-		nextSequence: lastSequence + 1,
-		done:         make(chan struct{}),
+		ctx:             context.Background(),
+		store:           store,
+		engine:          engine,
+		symbol:          symbol,
+		queue:           make(chan queueCommand, queueCapacity),
+		nextSequence:    lastSequence + 1,
+		done:            make(chan struct{}),
+		lowerPriceLimit: lowerPriceLimit,
+		upperPriceLimit: upperPriceLimit,
 	}
 
 	go worker.run()
@@ -66,7 +73,7 @@ func NewOrderWorker(store orderWorkerStore, engine *matching.Engine, symbol doma
 }
 
 func (worker *OrderWorker) Submit(ctx context.Context, request SubmitOrderRequest) error {
-	if err := request.Validate(); err != nil {
+	if err := request.Validate(worker); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidOrder, err)
 	}
 
