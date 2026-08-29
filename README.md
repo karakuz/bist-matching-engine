@@ -343,7 +343,7 @@ ws://localhost:8080/ws
 Subscribe by sending one message for each required topic:
 
 ```json
-{"action":"subscribe","topic":"MARKET_DEPTH"}
+{"action":"subscribe","symbol":"ASELS","topic":"MARKET_DEPTH"}
 ```
 
 Supported topics are:

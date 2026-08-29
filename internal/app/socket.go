@@ -27,18 +27,25 @@ func (t WsTopic) IsValid() bool {
 	return false
 }
 
+type SubscriptionKey struct {
+	Symbol string
+	Topic  WsTopic
+}
+
 type WebSocketServer struct {
 	mu            sync.RWMutex
-	subscriptions map[WsTopic]map[*websocket.Conn]struct{}
+	subscriptions map[SubscriptionKey]map[*websocket.Conn]struct{}
 }
 
 type ClientMessage struct {
 	Action string  `json:"action"`
 	Topic  WsTopic `json:"topic"`
+	Symbol string  `json:"symbol"`
 }
 
 type LastTradePriceMessage struct {
-	Price int64 `json:"price"`
+	Price  int64  `json:"price"`
+	Symbol string `json:"symbol"`
 }
 
 type TradeMessage struct {
@@ -58,7 +65,7 @@ type TradeMessages struct {
 
 func NewWebSocketServer() *WebSocketServer {
 	return &WebSocketServer{
-		subscriptions: make(map[WsTopic]map[*websocket.Conn]struct{}),
+		subscriptions: make(map[SubscriptionKey]map[*websocket.Conn]struct{}),
 	}
 }
 
@@ -97,38 +104,50 @@ func (s *WebSocketServer) HandleConnection(w http.ResponseWriter, r *http.Reques
 
 		switch message.Action {
 		case "subscribe":
-			s.Subscribe(message.Topic, conn)
+			s.Subscribe(message.Topic, message.Symbol, conn)
 
 		case "unsubscribe":
-			s.Unsubscribe(message.Topic, conn)
+			s.Unsubscribe(message.Topic, message.Symbol, conn)
 		}
+	}
+}
+
+func getSubKey(symbol string, topic WsTopic) SubscriptionKey {
+	return SubscriptionKey{
+		Symbol: symbol,
+		Topic:  topic,
 	}
 }
 
 func (s *WebSocketServer) Subscribe(
 	topic WsTopic,
+	symbol string,
 	conn *websocket.Conn,
 ) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.subscriptions[topic] == nil {
-		s.subscriptions[topic] = make(map[*websocket.Conn]struct{})
+	subKey := getSubKey(symbol, topic)
+
+	if s.subscriptions[subKey] == nil {
+		s.subscriptions[subKey] = make(map[*websocket.Conn]struct{})
 	}
 
-	s.subscriptions[topic][conn] = struct{}{}
+	s.subscriptions[subKey][conn] = struct{}{}
 
-	log.Println("subscribed to:", topic)
+	log.Println("subscribed to:", subKey)
 }
 
 func (s *WebSocketServer) Unsubscribe(
 	topic WsTopic,
+	symbol string,
 	conn *websocket.Conn,
 ) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	connections := s.subscriptions[topic]
+	subKey := getSubKey(symbol, topic)
+	connections := s.subscriptions[subKey]
 
 	if connections == nil {
 		return
@@ -137,7 +156,7 @@ func (s *WebSocketServer) Unsubscribe(
 	delete(connections, conn)
 
 	if len(connections) == 0 {
-		delete(s.subscriptions, topic)
+		delete(s.subscriptions, subKey)
 	}
 
 	log.Println("unsubscribed from:", topic)
@@ -161,13 +180,15 @@ func (s *WebSocketServer) RemoveConnection(
 func (s *WebSocketServer) Publish(
 	ctx context.Context,
 	topic WsTopic,
+	symbol string,
 	data []byte,
 ) {
 	s.mu.RLock()
 
 	connections := make([]*websocket.Conn, 0)
+	subKey := getSubKey(symbol, topic)
 
-	for conn := range s.subscriptions[topic] {
+	for conn := range s.subscriptions[subKey] {
 		connections = append(connections, conn)
 	}
 

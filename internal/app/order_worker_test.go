@@ -43,8 +43,9 @@ type fakeOrderWorkerStore struct {
 }
 
 type publishCall struct {
-	topic WsTopic
-	data  []byte
+	topic  WsTopic
+	symbol string
+	data   []byte
 }
 
 type fakeWsServer struct {
@@ -52,10 +53,11 @@ type fakeWsServer struct {
 	publishedSignal chan struct{}
 }
 
-func (wsServer *fakeWsServer) Publish(ctx context.Context, topic WsTopic, data []byte) {
+func (wsServer *fakeWsServer) Publish(ctx context.Context, topic WsTopic, symbol string, data []byte) {
 	wsServer.calls = append(wsServer.calls, publishCall{
-		topic: topic,
-		data:  append([]byte(nil), data...),
+		topic:  topic,
+		symbol: symbol,
+		data:   append([]byte(nil), data...),
 	})
 
 	if wsServer.publishedSignal != nil {
@@ -604,6 +606,9 @@ func TestOrderWorkerWsFandout(t *testing.T) {
 	if firstCall.topic != MarketDepthTopic {
 		t.Fatalf("Expected first topic to be MarketDepthTopic, got: %v", firstCall.topic)
 	}
+	if firstCall.symbol != symbolCode {
+		t.Fatalf("Expected first symbol to be %s, got: %s", symbolCode, firstCall.symbol)
+	}
 
 	var firstCallData book.Snapshot
 	if err := json.Unmarshal(firstCall.data, &firstCallData); err != nil {
@@ -638,6 +643,9 @@ func TestOrderWorkerWsFandout(t *testing.T) {
 	if secondCall.topic != CurrentPriceTopic {
 		t.Fatalf("Expected second topic to be CurrentPriceTopic, got: %v", secondCall.topic)
 	}
+	if secondCall.symbol != symbolCode {
+		t.Fatalf("Expected second symbol to be %s, got: %s", symbolCode, secondCall.symbol)
+	}
 
 	var secondCallData LastTradePriceMessage
 	if err := json.Unmarshal(secondCall.data, &secondCallData); err != nil {
@@ -652,6 +660,9 @@ func TestOrderWorkerWsFandout(t *testing.T) {
 	thirdCall := fakeWsServer.calls[2]
 	if thirdCall.topic != TradesTopic {
 		t.Fatalf("Expected third topic to be TradesTopic, got: %v", thirdCall.topic)
+	}
+	if thirdCall.symbol != symbolCode {
+		t.Fatalf("Expected third symbol to be %s, got: %s", symbolCode, thirdCall.symbol)
 	}
 
 	var thirdCallData TradeMessages
@@ -671,6 +682,9 @@ func TestOrderWorkerWsFandout(t *testing.T) {
 	fourthCall := fakeWsServer.calls[3]
 	if fourthCall.topic != MarketDepthTopic {
 		t.Fatalf("Expected fourth topic to be MarketDepthTopic, got: %v", fourthCall.topic)
+	}
+	if fourthCall.symbol != symbolCode {
+		t.Fatalf("Expected fourth symbol to be %s, got: %s", symbolCode, fourthCall.symbol)
 	}
 
 	var fourthCallData book.Snapshot

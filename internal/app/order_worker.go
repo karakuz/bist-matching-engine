@@ -29,7 +29,7 @@ type orderWorkerStore interface {
 }
 
 type orderPublisher interface {
-	Publish(context.Context, WsTopic, []byte)
+	Publish(context.Context, WsTopic, string, []byte)
 }
 
 type OrderWorker struct {
@@ -253,13 +253,14 @@ func CreateOrderFromSubmitOrderRequest(worker *OrderWorker, request SubmitOrderR
 
 func WsFanoutCurrentPrice(ltp int64, worker *OrderWorker) {
 	message := LastTradePriceMessage{
-		Price: ltp,
+		Price:  ltp,
+		Symbol: worker.symbol.Code,
 	}
 	data, marshalErr := json.Marshal(message)
 	if marshalErr != nil {
 		log.Printf("marshal trade message failed: %v", marshalErr)
 	} else {
-		worker.wsServer.Publish(worker.ctx, CurrentPriceTopic, data)
+		worker.wsServer.Publish(worker.ctx, CurrentPriceTopic, worker.symbol.Code, data)
 	}
 }
 
@@ -276,7 +277,7 @@ func WsFanoutMarketDepth(worker *OrderWorker) {
 		return
 	}
 
-	worker.wsServer.Publish(worker.ctx, MarketDepthTopic, data)
+	worker.wsServer.Publish(worker.ctx, MarketDepthTopic, worker.symbol.Code, data)
 }
 
 func WsFanoutTrades(plan matching.MatchPlan, worker *OrderWorker) {
@@ -301,6 +302,6 @@ func WsFanoutTrades(plan matching.MatchPlan, worker *OrderWorker) {
 	if marshalErr != nil {
 		log.Printf("marshal trade message failed: %v", marshalErr)
 	} else {
-		worker.wsServer.Publish(worker.ctx, TradesTopic, data)
+		worker.wsServer.Publish(worker.ctx, TradesTopic, worker.symbol.Code, data)
 	}
 }

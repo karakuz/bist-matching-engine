@@ -82,6 +82,7 @@ func run() error {
 
 	router.POST("/publish", func(c *gin.Context) {
 		topic := app.WsTopic(c.Query("topic"))
+		symbol := c.Query("symbol")
 
 		if !topic.IsValid() {
 			c.JSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid topic"})
@@ -91,6 +92,7 @@ func run() error {
 		wsServer.Publish(
 			c.Request.Context(),
 			topic,
+			symbol,
 			[]byte(`{"price":123.45}`),
 		)
 
