@@ -4,35 +4,35 @@ import (
 	"context"
 	"fmt"
 
+	"bist-matching-engine/internal/app"
 	"bist-matching-engine/internal/book"
 	"bist-matching-engine/internal/matching"
 	"bist-matching-engine/internal/storage"
-	"bist-matching-engine/internal/app"
 )
 
-func initializeEngines(ctx context.Context,store *storage.PostgresStore) (map[string]*matching.Engine, error) {
+func initializeEngines(ctx context.Context, store *storage.PostgresStore) (map[string]*matching.Engine, error) {
 	initializations, err := store.GetBookInitializations(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("get book initializations: %w",err)
+		return nil, fmt.Errorf("get book initializations: %w", err)
 	}
 
 	if len(initializations) == 0 {
 		return nil, fmt.Errorf("no book initializations found")
 	}
 
-	engines := make(map[string]*matching.Engine,len(initializations))
+	engines := make(map[string]*matching.Engine, len(initializations))
 
 	for _, initialization := range initializations {
-		orderBook := book.NewBook(initialization.Symbol,initialization.SessionDate,initialization.OpeningPrice)
+		orderBook := book.NewBook(initialization.Symbol, initialization.SessionDate, initialization.OpeningPrice)
 
 		restingOrders, err :=
 			store.GetRestingOrdersForSession(ctx, initialization.Symbol, initialization.SessionDate)
 		if err != nil {
-			return nil, fmt.Errorf("load resting orders for %s: %w",initialization.Symbol.Code,err)
+			return nil, fmt.Errorf("load resting orders for %s: %w", initialization.Symbol.Code, err)
 		}
 
 		if err := orderBook.Add(restingOrders...); err != nil {
-			return nil, fmt.Errorf("restore order book for %s: %w",initialization.Symbol.Code,err)
+			return nil, fmt.Errorf("restore order book for %s: %w", initialization.Symbol.Code, err)
 		}
 
 		engines[initialization.Symbol.Code] = matching.NewEngine(orderBook)
@@ -41,7 +41,13 @@ func initializeEngines(ctx context.Context,store *storage.PostgresStore) (map[st
 	return engines, nil
 }
 
-func initializeWorkers(ctx context.Context, store *storage.PostgresStore, engines map[string]*matching.Engine, queueCapacity int) (map[string]*app.OrderWorker, error) {
+func initializeWorkers(
+	ctx context.Context,
+	store *storage.PostgresStore,
+	engines map[string]*matching.Engine,
+	wsServer *app.WebSocketServer,
+	queueCapacity int,
+) (map[string]*app.OrderWorker, error) {
 	workers := make(
 		map[string]*app.OrderWorker,
 		len(engines),
@@ -62,6 +68,7 @@ func initializeWorkers(ctx context.Context, store *storage.PostgresStore, engine
 			store,
 			engine,
 			symbol,
+			wsServer,
 			lastSequence,
 			queueCapacity,
 		)

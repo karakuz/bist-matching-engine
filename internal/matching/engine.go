@@ -33,6 +33,10 @@ func (engine *Engine) PriceLimits() (int64, int64) {
 	return lowerPriceLimit, upperPriceLimit
 }
 
+func (engine *Engine) LastTradePrice() int64 {
+	return engine.book.GetLastTradePrice()
+}
+
 func newTrade(order domain.Order, restingOrder domain.Order, quantity int64) domain.Trade {
 	var BuyOrderID string
 	var SellOrderID string
@@ -145,7 +149,6 @@ func (engine *Engine) Apply(plan MatchPlan) error {
 }
 
 func (engine *Engine) apply(plan MatchPlan) error {
-
 	for index, trade := range plan.Trades {
 		var (
 			updatedOrder domain.Order
@@ -154,12 +157,10 @@ func (engine *Engine) apply(plan MatchPlan) error {
 
 		switch plan.IncomingOrder.Side {
 		case domain.SideBuy:
-			updatedOrder, exists =
-				engine.book.ReduceBestSell(trade.Quantity)
+			updatedOrder, exists = engine.book.ReduceBestSell(trade.Quantity)
 
 		case domain.SideSell:
-			updatedOrder, exists =
-				engine.book.ReduceBestBuy(trade.Quantity)
+			updatedOrder, exists = engine.book.ReduceBestBuy(trade.Quantity)
 
 		default:
 			return domain.ErrInvalidSide
@@ -169,31 +170,24 @@ func (engine *Engine) apply(plan MatchPlan) error {
 			return ErrUnhandledCase
 		}
 
-		expectedUpdate :=
-			plan.RestingOrderUpdates[index]
+		expectedUpdate := plan.RestingOrderUpdates[index]
 
-		if updatedOrder.ID != expectedUpdate.ID ||
-			updatedOrder.RemainingQuantity !=
-				expectedUpdate.RemainingQuantity ||
-			updatedOrder.Status != expectedUpdate.Status {
+		if updatedOrder.ID != expectedUpdate.ID || updatedOrder.RemainingQuantity !=
+			expectedUpdate.RemainingQuantity || updatedOrder.Status != expectedUpdate.Status {
 			return ErrUnhandledCase
 		}
 	}
 
 	if plan.IncomingOrder.RemainingQuantity > 0 {
-		if err := engine.book.Add(
-			plan.IncomingOrder,
-		); err != nil {
+		err := engine.book.Add(plan.IncomingOrder)
+		if err != nil {
 			return err
 		}
 	}
 
 	if len(plan.Trades) > 0 {
 		lastTrade := plan.Trades[len(plan.Trades)-1]
-
-		engine.book.UpdateLastTradePrice(
-			lastTrade.Price,
-		)
+		engine.book.UpdateLastTradePrice(lastTrade.Price)
 	}
 
 	return nil

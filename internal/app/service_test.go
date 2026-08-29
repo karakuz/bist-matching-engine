@@ -1,4 +1,3 @@
-// internal/app/service_test.go
 package app
 
 import (
@@ -128,10 +127,13 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 		t.Fatalf("GetLastOrderSequence failed: %v", err)
 	}
 
+	fakeWsServer := &fakeWsServer{}
+
 	worker, err := NewOrderWorker(
 		store,
 		engine,
 		initialization.Symbol,
+		fakeWsServer,
 		lastSequence,
 		10,
 	)

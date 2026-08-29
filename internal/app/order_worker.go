@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"bist-matching-engine/internal/book"
 	"bist-matching-engine/internal/domain"
 	"bist-matching-engine/internal/matching"
 
@@ -26,11 +28,16 @@ type orderWorkerStore interface {
 	PersistSubmission(context.Context, domain.Order, []domain.Order, []domain.Trade, []domain.OrderEvent) error
 }
 
+type orderPublisher interface {
+	Publish(context.Context, WsTopic, []byte)
+}
+
 type OrderWorker struct {
 	ctx             context.Context
 	store           orderWorkerStore
 	engine          *matching.Engine
 	symbol          domain.Symbol
+	wsServer        orderPublisher
 	queue           chan queueCommand
 	submissionMutex sync.Mutex
 	nextSequence    int64
@@ -48,7 +55,14 @@ type queueCommand struct {
 	ready chan bool
 }
 
-func NewOrderWorker(store orderWorkerStore, engine *matching.Engine, symbol domain.Symbol, lastSequence int64, queueCapacity int) (*OrderWorker, error) {
+func NewOrderWorker(
+	store orderWorkerStore,
+	engine *matching.Engine,
+	symbol domain.Symbol,
+	wsServer orderPublisher,
+	lastSequence int64,
+	queueCapacity int,
+) (*OrderWorker, error) {
 	if queueCapacity <= 0 {
 		return nil, errors.New("queue capacity must be > 0")
 	}
@@ -60,6 +74,7 @@ func NewOrderWorker(store orderWorkerStore, engine *matching.Engine, symbol doma
 		store:           store,
 		engine:          engine,
 		symbol:          symbol,
+		wsServer:        wsServer,
 		queue:           make(chan queueCommand, queueCapacity),
 		nextSequence:    lastSequence + 1,
 		done:            make(chan struct{}),
@@ -158,7 +173,7 @@ func (worker *OrderWorker) run() {
 		}
 		worker.mutex.RLock()
 
-		_, _, err := worker.process(worker.ctx, *order)
+		_, plan, err := worker.process(worker.ctx, *order)
 		if err != nil {
 			log.Printf(
 				"worker failed to process order id=%s sequence=%d: %v",
@@ -172,6 +187,15 @@ func (worker *OrderWorker) run() {
 			if err != nil {
 				log.Printf("[Worker Error] Update order failed: %v", err)
 			}
+		} else {
+			//only fanout last trade price after trade
+			if len(plan.Trades) > 0 {
+				ltp := worker.engine.LastTradePrice()
+				WsFanoutCurrentPrice(ltp, worker)
+				WsFanoutTrades(plan, worker)
+			}
+
+			WsFanoutMarketDepth(worker)
 		}
 
 		worker.mutex.RUnlock()
@@ -225,4 +249,58 @@ func CreateOrderFromSubmitOrderRequest(worker *OrderWorker, request SubmitOrderR
 		request.Quantity,
 		time.Now().UTC(),
 	)
+}
+
+func WsFanoutCurrentPrice(ltp int64, worker *OrderWorker) {
+	message := LastTradePriceMessage{
+		Price: ltp,
+	}
+	data, marshalErr := json.Marshal(message)
+	if marshalErr != nil {
+		log.Printf("marshal trade message failed: %v", marshalErr)
+	} else {
+		worker.wsServer.Publish(worker.ctx, CurrentPriceTopic, data)
+	}
+}
+
+func WsFanoutMarketDepth(worker *OrderWorker) {
+	snapshot, err := worker.engine.Snapshot(book.MAX_SNAPSHOT_LEVELS)
+	if err != nil {
+		log.Printf("build market-depth snapshot failed: %v", err)
+		return
+	}
+
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		log.Printf("marshal market-depth snapshot failed: %v", err)
+		return
+	}
+
+	worker.wsServer.Publish(worker.ctx, MarketDepthTopic, data)
+}
+
+func WsFanoutTrades(plan matching.MatchPlan, worker *OrderWorker) {
+	tradeMessages := make([]TradeMessage, 0, len(plan.Trades))
+	for _, trade := range plan.Trades {
+		tradeMessage := TradeMessage{
+			TradeID:     trade.ID,
+			Symbol:      trade.Symbol.Code,
+			BuyOrderID:  trade.BuyOrderID,
+			SellOrderID: trade.SellOrderID,
+			Price:       trade.Price,
+			Quantity:    trade.Quantity,
+			CreatedAt:   trade.CreatedAt,
+		}
+		tradeMessages = append(tradeMessages, tradeMessage)
+	}
+	message := TradeMessages{
+		Symbol: plan.IncomingOrder.Symbol.Code,
+		Trades: tradeMessages,
+	}
+	data, marshalErr := json.Marshal(message)
+	if marshalErr != nil {
+		log.Printf("marshal trade message failed: %v", marshalErr)
+	} else {
+		worker.wsServer.Publish(worker.ctx, TradesTopic, data)
+	}
 }

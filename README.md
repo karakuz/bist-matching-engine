@@ -26,7 +26,8 @@ The core backend currently supports:
 - Startup reconstruction from resting PostgreSQL orders
 
 The HTTP API currently exposes limit-order submission and level-based order book
-snapshots.
+snapshots. A WebSocket market feed publishes completed order book, last trade
+price, and trade updates.
 
 ## Core design
 
@@ -172,7 +173,7 @@ asynchronous submission path is considered finished.
 - Add a live trade table below the chart showing price, quantity, buyer, seller,
   and execution time
 - Add a simple manual order-entry screen
-- Introduce WebSocket or SSE updates after the market-data read model is defined
+- Consume the existing WebSocket market feed for live board updates
 
 [![Order book chart visual reference](https://www.highcharts.com/demo/images/samples/stock/demo/orderbook-chart/thumbnail.webp)](https://www.highcharts.com/demo/stock/orderbook-chart)
 
@@ -330,6 +331,31 @@ Example response:
 The URL controls the maximum number of levels returned for each side and accepts
 values from 1 through 100. BUY levels are ordered highest-first, SELL levels are
 ordered lowest-first, and quantities are aggregated at each price.
+
+### Subscribe to market updates
+
+Connect a WebSocket client to:
+
+```text
+ws://localhost:8080/ws
+```
+
+Subscribe by sending one message for each required topic:
+
+```json
+{"action":"subscribe","topic":"MARKET_DEPTH"}
+```
+
+Supported topics are:
+
+- `MARKET_DEPTH` — full level-based order book snapshot after every successfully
+  processed order
+- `CURRENT_PRICE` — latest trade price after an order produces a trade
+- `TRADES` — all trades produced by the processed order
+
+To stop receiving a topic, send the same message with `"action":"unsubscribe"`.
+The server publishes the JSON payload for each subscribed topic after database
+persistence and the corresponding in-memory match plan have both succeeded.
 
 ## Testing
 

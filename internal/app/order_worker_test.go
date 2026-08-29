@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -39,6 +40,27 @@ type fakeOrderWorkerStore struct {
 
 	failUpdateOrder           bool
 	isPersistSubmissionCalled bool
+}
+
+type publishCall struct {
+	topic WsTopic
+	data  []byte
+}
+
+type fakeWsServer struct {
+	calls           []publishCall
+	publishedSignal chan struct{}
+}
+
+func (wsServer *fakeWsServer) Publish(ctx context.Context, topic WsTopic, data []byte) {
+	wsServer.calls = append(wsServer.calls, publishCall{
+		topic: topic,
+		data:  append([]byte(nil), data...),
+	})
+
+	if wsServer.publishedSignal != nil {
+		wsServer.publishedSignal <- struct{}{}
+	}
 }
 
 func (store *fakeOrderWorkerStore) InsertOrder(ctx context.Context, order domain.Order) error {
@@ -110,7 +132,7 @@ func (store *fakeOrderWorkerStore) PersistSubmission(ctx context.Context, incomi
 	return nil
 }
 
-func getTestWorker(t *testing.T, symbolCode string, store orderWorkerStore, queueCapacity int) *OrderWorker {
+func getTestWorker(t *testing.T, symbolCode string, store orderWorkerStore, wsServer orderPublisher, queueCapacity int) *OrderWorker {
 	t.Helper()
 
 	symbol, err := domain.NewSymbol(symbolCode, 10)
@@ -121,7 +143,7 @@ func getTestWorker(t *testing.T, symbolCode string, store orderWorkerStore, queu
 	orderBook := book.NewBook(symbol, time.Now().UTC(), 30000)
 	engine := matching.NewEngine(orderBook)
 
-	worker, err := NewOrderWorker(store, engine, symbol, 1, queueCapacity)
+	worker, err := NewOrderWorker(store, engine, symbol, wsServer, 1, queueCapacity)
 	if err != nil {
 		t.Fatalf("NewOrderWorker failed: %v", err)
 	}
@@ -140,8 +162,9 @@ Returns nil.
 func TestOrderWorkerSubmitQueuesPendingOrder(t *testing.T) {
 	symbolCode := "ASELS"
 	store := &fakeOrderWorkerStore{}
+	fakeWsServer := &fakeWsServer{}
 
-	worker := getTestWorker(t, symbolCode, store, 10)
+	worker := getTestWorker(t, symbolCode, store, fakeWsServer, 10)
 	ctx := context.Background()
 	request := SubmitOrderRequest{
 		ParticipantId: 1,
@@ -199,8 +222,9 @@ func TestOrderWorkerWaitsForPendingUpdateBeforeProcessing(t *testing.T) {
 		updatedSignal:             make(chan bool),
 		isPersistSubmissionCalled: false,
 	}
+	fakeWsServer := &fakeWsServer{}
 
-	worker := getTestWorker(t, symbolCode, store, 10)
+	worker := getTestWorker(t, symbolCode, store, fakeWsServer, 10)
 	ctx := context.Background()
 	request := SubmitOrderRequest{
 		ParticipantId: 1,
@@ -260,8 +284,9 @@ func TestOrderWorkerSkipsProcessingWhenPendingUpdateFails(t *testing.T) {
 		failUpdateOrder:           true,
 		isPersistSubmissionCalled: false,
 	}
+	fakeWsServer := &fakeWsServer{}
 
-	worker := getTestWorker(t, symbolCode, store, 10)
+	worker := getTestWorker(t, symbolCode, store, fakeWsServer, 10)
 	ctx := context.Background()
 	request := SubmitOrderRequest{
 		ParticipantId: 1,
@@ -295,8 +320,9 @@ func TestOrderWorkerRejectsWhenQueueIsFull(t *testing.T) {
 		persistSubmissionStartedSignal: make(chan bool, 1),
 		startPersistSubmission:         make(chan bool),
 	}
+	fakeWsServer := &fakeWsServer{}
 
-	worker := getTestWorker(t, symbolCode, store, 1)
+	worker := getTestWorker(t, symbolCode, store, fakeWsServer, 1)
 
 	t.Cleanup(func() {
 		close(store.startPersistSubmission)
@@ -354,9 +380,10 @@ func TestOrderWorkerDoesNotConsumeSequenceWhenInsertFails(t *testing.T) {
 		failInsertOrder:       true,
 		insertSequenceAttempt: make(chan int64, 1),
 	}
+	fakeWsServer := &fakeWsServer{}
 
 	symbolCode := "ASELS"
-	worker := getTestWorker(t, symbolCode, store, 1)
+	worker := getTestWorker(t, symbolCode, store, fakeWsServer, 1)
 	ctx := context.Background()
 	firstRequest := SubmitOrderRequest{
 		ParticipantId: 1,
@@ -395,7 +422,8 @@ func TestOrderWorkerDoesNotConsumeSequenceWhenInsertFails(t *testing.T) {
 
 func TestNewOrderWorkerCopiesPriceLimits(t *testing.T) {
 	store := &fakeOrderWorkerStore{}
-	worker := getTestWorker(t, "ASELS", store, 10)
+	fakeWsServer := &fakeWsServer{}
+	worker := getTestWorker(t, "ASELS", store, fakeWsServer, 10)
 
 	const expectedLowerPriceLimit int64 = 27000
 	const expectedUpperPriceLimit int64 = 33000
@@ -427,7 +455,9 @@ func TestOrderWorkerRejectsPriceOutsideLimitsBeforeStorage(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			store := &fakeOrderWorkerStore{}
-			worker := getTestWorker(t, "ASELS", store, 10)
+			fakeWsServer := &fakeWsServer{}
+
+			worker := getTestWorker(t, "ASELS", store, fakeWsServer, 10)
 			initialNextSequence := worker.nextSequence
 
 			request := SubmitOrderRequest{
@@ -476,7 +506,8 @@ func TestOrderWorkerAcceptsPricesAtLimits(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			store := &fakeOrderWorkerStore{}
-			worker := getTestWorker(t, "ASELS", store, 10)
+			fakeWsServer := &fakeWsServer{}
+			worker := getTestWorker(t, "ASELS", store, fakeWsServer, 10)
 
 			request := SubmitOrderRequest{
 				ParticipantId: 1,
@@ -505,7 +536,8 @@ func TestOrderWorkerReturnsFailedAfterProccessStarts(t *testing.T) {
 	}
 
 	symbolCode := "ASELS"
-	worker := getTestWorker(t, symbolCode, store, 1)
+	fakeWsServer := &fakeWsServer{}
+	worker := getTestWorker(t, symbolCode, store, fakeWsServer, 1)
 
 	ctx := context.Background()
 	request := SubmitOrderRequest{
@@ -531,5 +563,121 @@ func TestOrderWorkerReturnsFailedAfterProccessStarts(t *testing.T) {
 
 	if call.order.Status != domain.StatusFailed {
 		t.Fatalf("Expected status failed, got: %v", call.order.Status)
+	}
+}
+
+func waitForWsPublications(t *testing.T, publisher *fakeWsServer, count int) {
+	t.Helper()
+
+	for range count {
+		<-publisher.publishedSignal
+	}
+}
+
+func TestOrderWorkerWsFandout(t *testing.T) {
+	store := &fakeOrderWorkerStore{}
+	symbolCode := "ASELS"
+	fakeWsServer := &fakeWsServer{
+		calls:           make([]publishCall, 0),
+		publishedSignal: make(chan struct{}, 4),
+	}
+	worker := getTestWorker(t, symbolCode, store, fakeWsServer, 1)
+
+	ctx := context.Background()
+	buyRequest := SubmitOrderRequest{
+		ParticipantId: 1,
+		Symbol:        symbolCode,
+		Side:          domain.SideBuy,
+		Price:         30000,
+		Quantity:      10,
+	}
+
+	buyRequestErr := worker.Submit(ctx, buyRequest)
+	if buyRequestErr != nil {
+		t.Fatalf("Expected no error on buyRequest submit, got: %v", buyRequestErr)
+	}
+
+	<-fakeWsServer.publishedSignal
+
+	//WsFanoutMarketDepth
+	firstCall := fakeWsServer.calls[0]
+	if firstCall.topic != MarketDepthTopic {
+		t.Fatalf("Expected first topic to be MarketDepthTopic, got: %v", firstCall.topic)
+	}
+
+	var firstCallData book.Snapshot
+	if err := json.Unmarshal(firstCall.data, &firstCallData); err != nil {
+		t.Fatalf("Error occured on firstCallData json unmarshal: %v", err)
+	}
+
+	if firstCallData.Buy[0].Price != 30000 {
+		t.Fatalf("Expected fanouted market depth first price to be 30000, got: %d", firstCallData.Buy[0].Price)
+	}
+
+	if firstCallData.Buy[0].Quantity != 10 {
+		t.Fatalf("Expected fanouted market depth first qty to be 10, got: %d", firstCallData.Buy[0].Quantity)
+	}
+
+	sellRequest := SubmitOrderRequest{
+		ParticipantId: 1,
+		Symbol:        symbolCode,
+		Side:          domain.SideSell,
+		Price:         29500,
+		Quantity:      15,
+	}
+
+	sellRequestErr := worker.Submit(ctx, sellRequest)
+	if sellRequestErr != nil {
+		t.Fatalf("Expected no error on sellRequest submit, got: %v", sellRequestErr)
+	}
+
+	waitForWsPublications(t, fakeWsServer, 3)
+
+	//WsFanoutCurrentPrice
+	secondCall := fakeWsServer.calls[1]
+	if secondCall.topic != CurrentPriceTopic {
+		t.Fatalf("Expected second topic to be CurrentPriceTopic, got: %v", secondCall.topic)
+	}
+
+	var secondCallData LastTradePriceMessage
+	if err := json.Unmarshal(secondCall.data, &secondCallData); err != nil {
+		t.Fatalf("Error occured on secondCallData json unmarshal: %v", err)
+	}
+
+	if secondCallData.Price != 30000 {
+		t.Fatalf("Expected last trade price on fanout to be 30000, got: %d", secondCallData.Price)
+	}
+
+	//WsFanoutTrades
+	thirdCall := fakeWsServer.calls[2]
+	if thirdCall.topic != TradesTopic {
+		t.Fatalf("Expected third topic to be TradesTopic, got: %v", thirdCall.topic)
+	}
+
+	var thirdCallData TradeMessages
+	if err := json.Unmarshal(thirdCall.data, &thirdCallData); err != nil {
+		t.Fatalf("Error occured on thirdCallData json unmarshal: %v", err)
+	}
+
+	if len(thirdCallData.Trades) != 1 {
+		t.Fatalf("Expected 1 trade, got: %d", len(thirdCallData.Trades))
+	}
+
+	if thirdCallData.Trades[0].Quantity != 10 {
+		t.Fatalf("Expected trade qty to be 10, got: %d", thirdCallData.Trades[0].Quantity)
+	}
+
+	//WsFanoutMarketDepth
+	fourthCall := fakeWsServer.calls[3]
+	if fourthCall.topic != MarketDepthTopic {
+		t.Fatalf("Expected fourth topic to be MarketDepthTopic, got: %v", fourthCall.topic)
+	}
+
+	var fourthCallData book.Snapshot
+	if err := json.Unmarshal(fourthCall.data, &fourthCallData); err != nil {
+		t.Fatalf("Error occured on fourthCallData json unmarshal: %v", err)
+	}
+	if fourthCallData.Sell[0].Quantity != 5 {
+		t.Fatalf("Expected fourth fanouted market depth first qty to be 5, got: %d", fourthCallData.Sell[0].Quantity)
 	}
 }

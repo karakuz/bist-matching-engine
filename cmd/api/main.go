@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	stdhttp "net/http"
 	"os"
 	"time"
 
+	"bist-matching-engine/internal/app"
 	httptransport "bist-matching-engine/internal/http"
 	"bist-matching-engine/internal/storage"
 
@@ -31,6 +33,7 @@ func run() error {
 	}
 	defer pool.Close()
 
+	wsServer := app.NewWebSocketServer()
 	store := storage.NewPostgresStore(pool)
 
 	engines, err := initializeEngines(ctx, store)
@@ -42,6 +45,7 @@ func run() error {
 		ctx,
 		store,
 		engines,
+		wsServer,
 		orderQueueCapacity,
 	)
 	if err != nil {
@@ -72,11 +76,27 @@ func run() error {
 
 	router.Use(gin.Recovery())
 
-	
-
 	httptransport.RegisterRoutes(router, engines, workers)
 
-	
+	router.GET("/ws", gin.WrapF(wsServer.HandleConnection))
+
+	router.POST("/publish", func(c *gin.Context) {
+		topic := app.WsTopic(c.Query("topic"))
+
+		if !topic.IsValid() {
+			c.JSON(stdhttp.StatusBadRequest, gin.H{"error": "invalid topic"})
+			return
+		}
+
+		wsServer.Publish(
+			c.Request.Context(),
+			topic,
+			[]byte(`{"price":123.45}`),
+		)
+
+		c.String(200, "published")
+	})
+
 	if err := router.Run(":8080"); err != nil {
 		return fmt.Errorf("run HTTP server: %w", err)
 	}
