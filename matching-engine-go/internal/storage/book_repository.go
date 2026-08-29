@@ -4,8 +4,8 @@ import (
 	"bist-matching-engine/internal/domain"
 	"context"
 	"errors"
-	"time"
 	"fmt"
+	"time"
 )
 
 var (

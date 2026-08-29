@@ -17,10 +17,10 @@ const (
 	EventTradeCreated         OrderEventType = "TRADE_CREATED"
 )
 
-var(
-	ErrInvalidOrderEventType 	= errors.New("Invalid Order Event Type")
-	ErrEmptyPayload 		 	= errors.New("Payload can not be empty")
-	ErrInvalidPayload			= errors.New("Invalid payload")
+var (
+	ErrInvalidOrderEventType = errors.New("Invalid Order Event Type")
+	ErrEmptyPayload          = errors.New("Payload can not be empty")
+	ErrInvalidPayload        = errors.New("Invalid payload")
 )
 
 type OrderEvent struct {
@@ -33,23 +33,22 @@ type OrderEvent struct {
 
 func IsValidOrderEventType(eventType OrderEventType) bool {
 	switch eventType {
-		case EventOrderAccepted,
-			EventOrderRejected,
-			EventOrderAddedToBook,
-			EventOrderPartiallyFilled,
-			EventOrderFilled,
-			EventTradeCreated:
-			return true
-		default:
-			return false
+	case EventOrderAccepted,
+		EventOrderRejected,
+		EventOrderAddedToBook,
+		EventOrderPartiallyFilled,
+		EventOrderFilled,
+		EventTradeCreated:
+		return true
+	default:
+		return false
 	}
 }
 
-func NewOrderEvent(orderID string, eventType OrderEventType, payload []byte, createdAt time.Time) (*OrderEvent, error){
+func NewOrderEvent(orderID string, eventType OrderEventType, payload []byte, createdAt time.Time) (*OrderEvent, error) {
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
 	}
-
 
 	if !IsValidOrderEventType(eventType) {
 		return nil, ErrInvalidOrderEventType

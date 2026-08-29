@@ -5,16 +5,16 @@ import (
 	"log"
 	stdhttp "net/http"
 
+	"bist-matching-engine/internal/app"
 	"bist-matching-engine/internal/book"
 	"bist-matching-engine/internal/matching"
-	"bist-matching-engine/internal/app"
 
 	"github.com/gin-gonic/gin"
 
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
-	"context"
 )
 
 func RegisterRoutes(
@@ -34,8 +34,8 @@ func RegisterRoutes(
 		symbol := strings.ToUpper(c.Param("symbol"))
 		levelsStr := c.Param("levels")
 
-		orderEngine  := engine[symbol]
-		if orderEngine  == nil {
+		orderEngine := engine[symbol]
+		if orderEngine == nil {
 			c.JSON(stdhttp.StatusNotFound, gin.H{
 				"message": fmt.Sprintf("order engine for '%s' not found", symbol),
 			})
@@ -91,12 +91,12 @@ func RegisterRoutes(
 		worker := workers[req.Symbol]
 		if worker == nil {
 			c.JSON(stdhttp.StatusNotFound, gin.H{
-				"message": fmt.Sprintf("order worker for '%s' not found",req.Symbol),
+				"message": fmt.Sprintf("order worker for '%s' not found", req.Symbol),
 			})
 			return
 		}
 
-		err = worker.Submit(c.Request.Context(),req)
+		err = worker.Submit(c.Request.Context(), req)
 		if err != nil {
 			switch {
 			case errors.Is(err, app.ErrInvalidOrder):

@@ -3,8 +3,8 @@ package storage
 import (
 	"bist-matching-engine/internal/domain"
 	"context"
-	"strings"
 	"fmt"
+	"strings"
 )
 
 /* func (store *PostgresStore) InsertTrades(ctx context.Context, trades []domain.Trade) error {

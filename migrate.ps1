@@ -3,10 +3,11 @@ $ErrorActionPreference = "Stop"
 $container = "postgres"
 $dbUser = "pte"
 $dbName = "pte"
+$composeFile = Join-Path $PSScriptRoot "docker-compose.yml"
 
-docker compose up -d $container | Out-Null
+docker compose -f $composeFile up -d $container | Out-Null
 
-$migrationsPath = Join-Path $PSScriptRoot "migrations"
+$migrationsPath = Join-Path $PSScriptRoot "matching-engine-go\migrations"
 
 $files = Get-ChildItem `
     -LiteralPath $migrationsPath `
@@ -20,7 +21,7 @@ if ($files.Count -eq 0) {
 foreach ($file in $files) {
     Write-Host "Running migration: $($file.Name)"
 
-    docker compose exec -T $container `
+    docker compose -f $composeFile exec -T $container `
         psql `
         -v ON_ERROR_STOP=1 `
         -U $dbUser `

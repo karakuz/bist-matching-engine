@@ -21,7 +21,6 @@ func NewPostgresPoolFromEnv(ctx context.Context) (*pgxpool.Pool, error) {
 	return pgxpool.New(ctx, connString)
 }
 
-
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 	return &PostgresStore{
 		pool: pool,

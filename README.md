@@ -1,7 +1,8 @@
-# BIST Matching Engine
+# BIST Trading Platform
 
-A backend-first limit order matching engine written in Go and inspired by the
-price-time priority rules used in exchange order books.
+A multi-service trading simulation platform centered on a Go limit order
+matching engine and inspired by the price-time priority rules used in exchange
+order books.
 
 ## Project overview
 
@@ -9,6 +10,10 @@ The engine accepts BUY and SELL limit orders through a bounded per-symbol
 submission queue. The HTTP path creates and persists the order before handing it
 to one background worker, while matching for the symbol remains sequential and
 deterministic even when HTTP requests arrive concurrently.
+
+The repository is organized as a monorepo. The Go backend is implemented now;
+the user-facing frontend is the next active component, and a Java bot simulator
+is planned afterward.
 
 The core backend currently supports:
 
@@ -125,21 +130,23 @@ as `35050`, avoiding floating-point arithmetic in matching and persistence.
 ## Project structure
 
 ```text
-cmd/api/             application startup and dependency wiring
-internal/app/        submission worker and application-level orchestration
-internal/book/       in-memory price levels and snapshots
-internal/domain/     orders, symbols, participants, trades, and events
-internal/http/       Gin routes and request handling
-internal/matching/   deterministic matching and staged match plans
-internal/storage/    pgx repositories and transactional persistence
-migrations/          PostgreSQL schema and development seed data
-tests/integration/   end-to-end test area
+matching-engine-go/       Go matching engine, HTTP API, WebSocket feed, and PostgreSQL storage
+  cmd/api/                application startup and dependency wiring
+  internal/               domain, book, matching, app, HTTP, and storage packages
+  migrations/             PostgreSQL schema and development seed data
+  tests/integration/      end-to-end test area
+frontend/                 user-facing web application
+bot-simulator-java/       planned Spring Boot market-participant simulator
+docker-compose.yml        shared local infrastructure
 ```
 
 ## Current boundaries
 
 The current version does not include market orders, cancel/modify operations,
-authentication, a frontend, or external message brokers.
+an implemented frontend, authentication, or external message brokers. The
+frontend will support both live market views and user order entry. Authentication
+and authorization are planned before persistent user identity and order ownership
+are introduced.
 
 PostgreSQL and process memory cannot participate in one distributed atomic
 transaction. The current ordering prevents memory changes when normal database
@@ -164,7 +171,7 @@ asynchronous submission path is considered finished.
 - Polish error responses and operational configuration
 - Add end-to-end API coverage and deployment documentation
 
-### V2 — Frontend market board
+### V2 — Frontend trading application
 
 - Display order book levels and recent trades
 - Show best bid, best ask, spread, and last trade price
@@ -174,6 +181,9 @@ asynchronous submission path is considered finished.
   and execution time
 - Add a simple manual order-entry screen
 - Consume the existing WebSocket market feed for live board updates
+- Grow beyond market display into user order submission and order-state views
+- Add authentication and authorization when persistent user identity and order
+  ownership enter scope
 
 [![Order book chart visual reference](https://www.highcharts.com/demo/images/samples/stock/demo/orderbook-chart/thumbnail.webp)](https://www.highcharts.com/demo/stock/orderbook-chart)
 
@@ -256,6 +266,7 @@ export BME_PG_CONNSTRING="postgres://pte:pte@localhost:5432/pte?sslmode=disable"
 All platforms:
 
 ```bash
+cd matching-engine-go
 go run ./cmd/api
 ```
 
@@ -365,6 +376,7 @@ PostgreSQL-backed repository tests require the migrated local database.
 All platforms:
 
 ```bash
+cd matching-engine-go
 go test -count=1 ./...
 ```
 
@@ -382,6 +394,7 @@ WebSocket fanout.
 Focused packages:
 
 ```bash
+cd matching-engine-go
 go test -count=1 -v ./internal/matching
 go test -count=1 -v ./internal/book
 ```

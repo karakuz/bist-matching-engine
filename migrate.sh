@@ -6,7 +6,7 @@ compose_service="postgres"
 db_user="pte"
 db_name="pte"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-migrations_dir="${script_dir}/migrations"
+migrations_dir="${script_dir}/matching-engine-go/migrations"
 
 docker compose -f "${script_dir}/docker-compose.yml" up -d "${compose_service}"
 

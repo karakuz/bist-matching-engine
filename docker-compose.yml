@@ -10,7 +10,7 @@ services:
       - "5432:5432"
     volumes:
       - pte_pgdata:/var/lib/postgresql/data
-      - ./migrations:/migrations:ro
+      - ./matching-engine-go/migrations:/migrations:ro
 
 volumes:
   pte_pgdata:
