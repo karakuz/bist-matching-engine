@@ -368,6 +368,17 @@ All platforms:
 go test -count=1 ./...
 ```
 
+### Coverage
+
+As of 29/08/2026, core statement coverage includes:
+
+- matching engine: 80.0%
+- domain model: 87.2%
+
+Tests focus on price-time priority, full and partial fills, multi-order
+matching, staged persistence, worker sequencing, failure handling, and
+WebSocket fanout.
+
 Focused packages:
 
 ```bash
