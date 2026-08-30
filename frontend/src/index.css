@@ -1,0 +1,23 @@
+:root {
+  color: #18212b;
+  background: #f5f7f9;
+  font-family: Inter, system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 20rem;
+  min-height: 100vh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
