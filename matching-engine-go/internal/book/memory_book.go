@@ -350,6 +350,10 @@ func (book *Book) GetLevel(side domain.Side, price int64) []Order {
 	return book.sells[price]
 }
 
+func (book *Book) GetOpeningPrice() int64 {
+	return book.openingPrice
+}
+
 func (book *Book) GetLastTradePrice() int64 {
 	return book.lastTradePrice
 }

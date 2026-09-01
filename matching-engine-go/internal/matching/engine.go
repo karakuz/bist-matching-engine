@@ -34,7 +34,15 @@ func (engine *Engine) PriceLimits() (int64, int64) {
 }
 
 func (engine *Engine) LastTradePrice() int64 {
+	engine.mutex.RLock()
+	defer engine.mutex.RUnlock()
 	return engine.book.GetLastTradePrice()
+}
+func (engine *Engine) OpeningPrice() int64{
+	return engine.book.GetOpeningPrice()
+}
+func (engine *Engine) Symbol() domain.Symbol {
+	return engine.book.Symbol
 }
 
 func newTrade(order domain.Order, restingOrder domain.Order, quantity int64) domain.Trade {

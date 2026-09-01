@@ -1,3 +1,12 @@
+export type SymbolSummary = {
+  openingPrice: number,
+  lastTradePrice: number,
+  priceChangePerc: number,
+  lowerLimit: number,
+  upperLimit: number,
+  tickSize: number
+}
+
 export type PriceLevel = {
   price: number
   quantity: number

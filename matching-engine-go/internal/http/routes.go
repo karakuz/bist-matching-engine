@@ -3,6 +3,7 @@ package http
 import (
 	"errors"
 	"log"
+	"math"
 	stdhttp "net/http"
 
 	"bist-matching-engine/internal/app"
@@ -74,6 +75,45 @@ func RegisterRoutes(
 		}
 
 		c.JSON(stdhttp.StatusOK, snapshot)
+	})
+
+	router.GET("/engine/:symbol/summary", func(c *gin.Context) {
+		symbol := strings.ToUpper(c.Param("symbol"))
+
+		orderEngine := engine[symbol]
+		if orderEngine == nil {
+			c.JSON(stdhttp.StatusNotFound, gin.H{
+				"message": fmt.Sprintf("order engine for '%s' not found", symbol),
+			})
+			return
+		}
+
+		tickSize := orderEngine.Symbol().TickSize
+		openingPrice := orderEngine.OpeningPrice()
+		ltp := orderEngine.LastTradePrice()
+		lowerLimit, upperLimit := orderEngine.PriceLimits()
+
+		priceChange := ltp - openingPrice
+		priceChangePercentage := float64(priceChange) / float64(openingPrice) * 100
+		priceChangePercentage = math.Round(priceChangePercentage*100) / 100
+
+		type SymbolSummary struct {
+			OpeningPrice    int64   `json:"openingPrice"`
+			LastTradePrice  int64   `json:"lastTradePrice"`
+			PriceChangePerc float64 `json:"priceChangePerc"`
+			LowerLimit      int64   `json:"lowerLimit"`
+			UpperLimit      int64   `json:"upperLimit"`
+			TickSize        int64   `json:"tickSize"`
+		}
+
+		c.JSON(stdhttp.StatusOK, SymbolSummary{
+			OpeningPrice:    openingPrice,
+			LastTradePrice:  ltp,
+			PriceChangePerc: priceChangePercentage,
+			LowerLimit:      lowerLimit,
+			UpperLimit:      upperLimit,
+			TickSize:        tickSize,
+		})
 	})
 
 	router.POST("/orders", func(c *gin.Context) {

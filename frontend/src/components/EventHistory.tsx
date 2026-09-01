@@ -1,4 +1,8 @@
-export function EventHistory() {
+type EventHistoryProps = {
+  symbol: string;
+};
+
+export function EventHistory({  }: EventHistoryProps) {
   return (
     <section className="panel">
       <h2>Event History</h2>
