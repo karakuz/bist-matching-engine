@@ -18,6 +18,11 @@ export type MarketDepthSnapshot = {
   sell: PriceLevel[]
 }
 
+export type MarketFeedMessage =
+  | MarketDepthSnapshot
+  | CurrentPriceMessage
+  | TradeMessages
+
 export type CurrentPriceMessage = {
   symbol: string
   price: number
