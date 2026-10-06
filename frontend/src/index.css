@@ -1,9 +1,9 @@
 :root {
-  color: #18212b;
-  background: #f5f7f9;
-  font-family: Inter, system-ui, sans-serif;
+  color: #17211f;
+  background: #f2f5f3;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  font-optical-sizing: auto;
 }
 
 * {
@@ -11,9 +11,9 @@
 }
 
 body {
-  margin: 0;
   min-width: 20rem;
   min-height: 100vh;
+  margin: 0;
 }
 
 button,
