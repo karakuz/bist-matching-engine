@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	stdhttp "net/http"
+	"sort"
 
 	"bist-matching-engine/internal/app"
 	"bist-matching-engine/internal/book"
@@ -23,6 +24,15 @@ func RegisterRoutes(
 	engine map[string]*matching.Engine,
 	workers map[string]*app.OrderWorker,
 ) {
+	router.GET("/symbols", func(c *gin.Context) {
+		symbols := make([]string, 0, len(engine))
+		for symbol := range engine {
+			symbols = append(symbols, symbol)
+		}
+		sort.Strings(symbols)
+		c.JSON(stdhttp.StatusOK, symbols)
+	})
+
 	router.GET("/alivez", func(c *gin.Context) {
 		c.JSON(stdhttp.StatusOK, []gin.H{
 			{"Test": "123"},
