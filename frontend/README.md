@@ -1,34 +1,51 @@
 # Frontend
 
-This is the React and TypeScript user-facing trading application. Vite provides
-the local development server and production build.
+The frontend is the React and TypeScript trading application. It displays the
+selected symbol's market summary and order book, accepts limit orders, and
+shows trade executions received while the page is open.
 
-The first implementation will consume the Go API and symbol-aware WebSocket
-feed to display market depth, current prices, and trades, and will allow users
-to submit orders. It is not limited to a read-only market dashboard.
+## Run locally
 
-Authentication, authorization, persistent user identity, and order ownership
-are planned future capabilities and are not implemented yet.
-
-## Commands
-
-Run these commands from this `frontend` directory:
+Start the Go API from `matching-engine-go` and keep it listening on port 8080.
+Then run these commands from this `frontend` directory:
 
 ```powershell
 npm install
 npm run dev
 ```
 
-Use `npm run build` to type-check the application and produce a production
-bundle. Use `npm run lint` to run the configured source-code checks.
+Vite proxies HTTP requests and the `/ws` WebSocket connection to the Go API.
+The default route opens ASELS; another symbol can be selected through the
+`symbol` query parameter, for example `/order?symbol=ASELS`.
+
+## Market updates
+
+The page loads the summary and 20 levels of market depth over HTTP while it
+opens a WebSocket subscription to the symbol's `MARKET_DEPTH`, `CURRENT_PRICE`,
+and `TRADES` topics. Trade activity begins when the page opens and is held in
+browser memory for that session; the backend does not currently expose a trade
+history endpoint.
+
+Order submissions use the existing API request shape and demo participant ID.
+Persistent user identity and order ownership are planned for a later phase.
+The `My orders`, participant-specific fills, and cancellation actions are shown
+as unavailable because the current API does not expose those operations.
+
+## Checks
+
+Run these from this directory:
+
+```powershell
+npm run build
+npm run lint
+```
 
 ## Source structure
 
 ```text
 src/
-  api/          HTTP and WebSocket communication
-  components/   Visible screen sections
-  types/        TypeScript representations of backend messages
-  App.tsx       Screen composition and shared application state
-  main.tsx      Browser entry point
+  api/          HTTP requests and market WebSocket connection
+  components/   Market summary, depth, order entry, and trade activity
+  pages/        Routed trading screen and page styles
+  types/        TypeScript representations of API and feed messages
 ```
