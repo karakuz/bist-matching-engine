@@ -49,13 +49,17 @@ type LastTradePriceMessage struct {
 }
 
 type TradeMessage struct {
-	TradeID     string    `json:"tradeId"`
-	Symbol      string    `json:"symbol"`
-	BuyOrderID  string    `json:"buyOrderId"`
-	SellOrderID string    `json:"sellOrderId"`
-	Price       int64     `json:"price"`
-	Quantity    int64     `json:"quantity"`
-	CreatedAt   time.Time `json:"createdAt"`
+	TradeID             string    `json:"tradeId"`
+	Symbol              string    `json:"symbol"`
+	BuyOrderID          string    `json:"buyOrderId"`
+	BuyParticipantID    int64     `json:"buyParticipantId"`
+	BuyParticipantName  string    `json:"buyParticipantName"`
+	SellOrderID         string    `json:"sellOrderId"`
+	SellParticipantID   int64     `json:"sellParticipantId"`
+	SellParticipantName string    `json:"sellParticipantName"`
+	Price               int64     `json:"price"`
+	Quantity            int64     `json:"quantity"`
+	CreatedAt           time.Time `json:"createdAt"`
 }
 
 type TradeMessages struct {

@@ -48,6 +48,8 @@ type OrderWorker struct {
 
 	lowerPriceLimit int64
 	upperPriceLimit int64
+
+	participantIdNameMapping map[int64]string
 }
 
 type queueCommand struct {
@@ -62,6 +64,7 @@ func NewOrderWorker(
 	wsServer orderPublisher,
 	lastSequence int64,
 	queueCapacity int,
+	participantIdNameMapping map[int64]string,
 ) (*OrderWorker, error) {
 	if queueCapacity <= 0 {
 		return nil, errors.New("queue capacity must be > 0")
@@ -70,16 +73,17 @@ func NewOrderWorker(
 	lowerPriceLimit, upperPriceLimit := engine.PriceLimits()
 
 	worker := &OrderWorker{
-		ctx:             context.Background(),
-		store:           store,
-		engine:          engine,
-		symbol:          symbol,
-		wsServer:        wsServer,
-		queue:           make(chan queueCommand, queueCapacity),
-		nextSequence:    lastSequence + 1,
-		done:            make(chan struct{}),
-		lowerPriceLimit: lowerPriceLimit,
-		upperPriceLimit: upperPriceLimit,
+		ctx:                      context.Background(),
+		store:                    store,
+		engine:                   engine,
+		symbol:                   symbol,
+		wsServer:                 wsServer,
+		queue:                    make(chan queueCommand, queueCapacity),
+		nextSequence:             lastSequence + 1,
+		done:                     make(chan struct{}),
+		lowerPriceLimit:          lowerPriceLimit,
+		upperPriceLimit:          upperPriceLimit,
+		participantIdNameMapping: participantIdNameMapping,
 	}
 
 	go worker.run()
@@ -282,15 +286,33 @@ func WsFanoutMarketDepth(worker *OrderWorker) {
 
 func WsFanoutTrades(plan matching.MatchPlan, worker *OrderWorker) {
 	tradeMessages := make([]TradeMessage, 0, len(plan.Trades))
+
+	participantsByOrderID := make(map[string]int64, len(plan.RestingOrderUpdates)+1)
+	participantsByOrderID[plan.IncomingOrder.ID] = plan.IncomingOrder.ParticipantID
+
+	for _, restingOrder := range plan.RestingOrderUpdates {
+		participantsByOrderID[restingOrder.ID] = restingOrder.ParticipantID
+	}
+
 	for _, trade := range plan.Trades {
+		buyParticipantID := participantsByOrderID[trade.BuyOrderID]
+		buyParticipantName := worker.participantIdNameMapping[buyParticipantID]
+
+		sellParticipantID := participantsByOrderID[trade.SellOrderID]
+		sellParticipantName := worker.participantIdNameMapping[sellParticipantID]
+
 		tradeMessage := TradeMessage{
-			TradeID:     trade.ID,
-			Symbol:      trade.Symbol.Code,
-			BuyOrderID:  trade.BuyOrderID,
-			SellOrderID: trade.SellOrderID,
-			Price:       trade.Price,
-			Quantity:    trade.Quantity,
-			CreatedAt:   trade.CreatedAt,
+			TradeID:             trade.ID,
+			Symbol:              trade.Symbol.Code,
+			BuyOrderID:          trade.BuyOrderID,
+			BuyParticipantID:    buyParticipantID,
+			BuyParticipantName:  buyParticipantName,
+			SellOrderID:         trade.SellOrderID,
+			SellParticipantID:   sellParticipantID,
+			SellParticipantName: sellParticipantName,
+			Price:               trade.Price,
+			Quantity:            trade.Quantity,
+			CreatedAt:           trade.CreatedAt,
 		}
 		tradeMessages = append(tradeMessages, tradeMessage)
 	}

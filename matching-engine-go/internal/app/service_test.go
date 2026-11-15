@@ -136,6 +136,10 @@ func TestSubmitOrderPersistsFinalMatchResult(t *testing.T) {
 		fakeWsServer,
 		lastSequence,
 		10,
+		map[int64]string{
+			1: "GARANTII",
+			3: "BOFFA",
+		},
 	)
 	if err != nil {
 		t.Fatalf("NewOrderWorker failed: %v", err)

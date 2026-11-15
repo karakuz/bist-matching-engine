@@ -48,10 +48,17 @@ func initializeWorkers(
 	wsServer *app.WebSocketServer,
 	queueCapacity int,
 ) (map[string]*app.OrderWorker, error) {
-	workers := make(
-		map[string]*app.OrderWorker,
-		len(engines),
-	)
+	participants, err := store.GetParticipants(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get participants: %w", err)
+	}
+
+	participantIdNameMapping := make(map[int64]string, len(participants))
+	for _, participant := range participants {
+		participantIdNameMapping[participant.ID] = participant.Name
+	}
+
+	workers := make(map[string]*app.OrderWorker, len(engines))
 
 	for symbolCode, engine := range engines {
 		symbol, err := store.GetSymbol(ctx, symbolCode)
@@ -71,6 +78,7 @@ func initializeWorkers(
 			wsServer,
 			lastSequence,
 			queueCapacity,
+			participantIdNameMapping,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("create worker for %s: %w", symbolCode, err)

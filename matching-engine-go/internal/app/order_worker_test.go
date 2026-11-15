@@ -134,7 +134,7 @@ func (store *fakeOrderWorkerStore) PersistSubmission(ctx context.Context, incomi
 	return nil
 }
 
-func getTestWorker(t *testing.T, symbolCode string, store orderWorkerStore, wsServer orderPublisher, queueCapacity int) *OrderWorker {
+func getTestWorker(t *testing.T, symbolCode string, store orderWorkerStore, wsServer orderPublisher, queueCapacity int, participantIdNameMappings ...map[int64]string) *OrderWorker {
 	t.Helper()
 
 	symbol, err := domain.NewSymbol(symbolCode, 10)
@@ -145,7 +145,12 @@ func getTestWorker(t *testing.T, symbolCode string, store orderWorkerStore, wsSe
 	orderBook := book.NewBook(symbol, time.Now().UTC(), 30000)
 	engine := matching.NewEngine(orderBook)
 
-	worker, err := NewOrderWorker(store, engine, symbol, wsServer, 1, queueCapacity)
+	participantIdNameMapping := map[int64]string{}
+	if len(participantIdNameMappings) > 0 {
+		participantIdNameMapping = participantIdNameMappings[0]
+	}
+
+	worker, err := NewOrderWorker(store, engine, symbol, wsServer, 1, queueCapacity, participantIdNameMapping)
 	if err != nil {
 		t.Fatalf("NewOrderWorker failed: %v", err)
 	}
@@ -583,7 +588,10 @@ func TestOrderWorkerWsFandout(t *testing.T) {
 		calls:           make([]publishCall, 0),
 		publishedSignal: make(chan struct{}, 4),
 	}
-	worker := getTestWorker(t, symbolCode, store, fakeWsServer, 1)
+	worker := getTestWorker(t, symbolCode, store, fakeWsServer, 1, map[int64]string{
+		1: "GARANTII",
+		3: "BOFFA",
+	})
 
 	ctx := context.Background()
 	buyRequest := SubmitOrderRequest{
