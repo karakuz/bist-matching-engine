@@ -9,6 +9,7 @@ import type {
 import type { OrderSide, SubmitOrderRequest } from '../types/order'
 
 export const LEVELS = 7
+export const DEMO_PARTICIPANT_ID = 2
 
 export type Side = 'buy' | 'sell'
 
@@ -23,8 +24,12 @@ export type TapeTrade = {
   id: string
   p: number
   q: number
-  buyer: string
-  seller: string
+  buyOrderId: string
+  buyParticipantId: number
+  buyParticipantName: string
+  sellOrderId: string
+  sellParticipantId: number
+  sellParticipantName: string
   t: string
 }
 
@@ -93,8 +98,12 @@ function toTapeTrade(trade: TradeMessage): TapeTrade {
     id: trade.tradeId,
     p: trade.price,
     q: trade.quantity,
-    buyer: trade.buyOrderId,
-    seller: trade.sellOrderId,
+    buyOrderId: trade.buyOrderId,
+    buyParticipantId: trade.buyParticipantId,
+    buyParticipantName: trade.buyParticipantName,
+    sellOrderId: trade.sellOrderId,
+    sellParticipantId: trade.sellParticipantId,
+    sellParticipantName: trade.sellParticipantName,
     t: formatTime(trade.createdAt),
   }
 }
@@ -147,6 +156,22 @@ export function createEngine(symbol: string) {
     subscribers.forEach((subscriber) => subscriber())
   }
 
+  function enqueueTrades(trades: TapeTrade[]) {
+    const knownTradeIds = new Set(state.tape.map((trade) => trade.id))
+    const newTrades: TapeTrade[] = []
+
+    for (const trade of trades) {
+      if (!knownTradeIds.has(trade.id)) {
+        newTrades.push(trade)
+        knownTradeIds.add(trade.id)
+      }
+    }
+
+    if (newTrades.length > 0) {
+      emit({ tape: [...newTrades.reverse(), ...state.tape].slice(0, 60) })
+    }
+  }
+
   function applySummary(summary: SymbolSummary, latestPrice: number | null) {
     emit({
       last: latestPrice ?? summary.lastTradePrice,
@@ -160,7 +185,7 @@ export function createEngine(symbol: string) {
 
   async function submit(side: Side, priceKurus: number, quantity: number) {
     const request: SubmitOrderRequest = {
-      participantId: 2,
+      participantId: DEMO_PARTICIPANT_ID,
       symbol,
       side: side.toUpperCase() as OrderSide,
       price: priceKurus,
@@ -242,12 +267,7 @@ export function createEngine(symbol: string) {
         }
 
         if (isTradesMessage(message)) {
-          const incomingTrades = message.trades
-            .map(toTapeTrade)
-            .filter((trade) => !state.tape.some((existing) => existing.id === trade.id))
-            .reverse()
-
-          emit({ tape: [...incomingTrades, ...state.tape].slice(0, 60) })
+          enqueueTrades(message.trades.map(toTapeTrade))
         }
       },
     })

@@ -32,7 +32,11 @@ export type TradeMessage = {
   tradeId: string
   symbol: string
   buyOrderId: string
+  buyParticipantId: number
+  buyParticipantName: string
   sellOrderId: string
+  sellParticipantId: number
+  sellParticipantName: string
   price: number
   quantity: number
   createdAt: string
