@@ -15,7 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const orderQueueCapacity = 100
+const orderQueueCapacity = 100000
 
 func main() {
 	if err := run(); err != nil {
