@@ -1,9 +1,9 @@
 INSERT INTO symbols (code, tick_size) VALUES
-    ('ASELS', 1),
-    ('THYAO', 1),
-    ('GARAN', 1),
-    ('AKBNK', 1),
-    ('ISCTR', 1)
+    ('ASELS', 10),
+    ('THYAO', 10),
+    ('GARAN', 10),
+    ('AKBNK', 10),
+    ('ISCTR', 10)
 ON CONFLICT (code) DO UPDATE SET
     tick_size = EXCLUDED.tick_size;
 
