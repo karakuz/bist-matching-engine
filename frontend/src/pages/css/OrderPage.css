@@ -64,6 +64,7 @@ h2 span{font-weight:400;color:var(--dim)}
 .tabs button:focus-visible,.seg button:focus-visible,.cx:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 .tbl{display:grid;padding:0 12px;gap:8px;height:24px;align-items:center;border-bottom:1px solid var(--line)}
 .tape{grid-template-columns:76px 52px minmax(0,1fr) minmax(0,1fr) 68px}
+.tape span{text-align:center}
 .tape span:nth-child(3),.tape span:nth-child(4){min-width:0;overflow:hidden;text-overflow:ellipsis}
 .mine-t{grid-template-columns:60px 1fr 1fr 1fr 60px}
 .tbl.head{color:var(--dim);height:26px}

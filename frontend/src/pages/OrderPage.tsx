@@ -296,8 +296,12 @@ function Trades({ rows }: { rows: TapeTrade[] }) {
         <div className="tbl tape" key={trade.id}>
           <span className="num">{fmt(trade.p)}</span>
           <span className="num">{trade.q}</span>
-          <span title={trade.buyer}>{trade.buyer}</span>
-          <span title={trade.seller}>{trade.seller}</span>
+          <span className="buy-c" title={`Order ${trade.buyOrderId}`}>
+            {trade.buyParticipantName || `Participant ${trade.buyParticipantId}`}
+          </span>
+          <span className="sell-c" title={`Order ${trade.sellOrderId}`}>
+            {trade.sellParticipantName || `Participant ${trade.sellParticipantId}`}
+          </span>
           <span className="num">{trade.t}</span>
         </div>
       ))}
