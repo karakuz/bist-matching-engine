@@ -1,5 +1,5 @@
 param(
-  [int]$DurationSeconds = 30,
+  [int]$DurationSeconds = 10,
   [int]$Workers = 8
 )
 

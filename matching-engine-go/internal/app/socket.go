@@ -35,6 +35,14 @@ type SubscriptionKey struct {
 type WebSocketServer struct {
 	mu            sync.RWMutex
 	subscriptions map[SubscriptionKey]map[*websocket.Conn]struct{}
+	clients       map[*websocket.Conn]*websocketClient
+}
+
+type websocketClient struct {
+	conn     *websocket.Conn
+	outbound chan []byte
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
 type ClientMessage struct {
@@ -70,6 +78,7 @@ type TradeMessages struct {
 func NewWebSocketServer() *WebSocketServer {
 	return &WebSocketServer{
 		subscriptions: make(map[SubscriptionKey]map[*websocket.Conn]struct{}),
+		clients:       make(map[*websocket.Conn]*websocketClient),
 	}
 }
 
@@ -80,16 +89,25 @@ func (s *WebSocketServer) HandleConnection(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	ctx, cancel := context.WithCancel(r.Context())
+
+	client := &websocketClient{
+		conn:     conn,
+		outbound: make(chan []byte, 256),
+		ctx:      ctx,
+		cancel:   cancel,
+	}
+
+	s.mu.Lock()
+	s.clients[conn] = client
+	s.mu.Unlock()
+
+	go s.writeMessages(client)
+
 	defer func() {
 		s.RemoveConnection(conn)
-
-		conn.Close(
-			websocket.StatusNormalClosure,
-			"connection closed",
-		)
+		conn.CloseNow()
 	}()
-
-	ctx := r.Context()
 
 	for {
 		_, data, err := conn.Read(ctx)
@@ -112,6 +130,28 @@ func (s *WebSocketServer) HandleConnection(w http.ResponseWriter, r *http.Reques
 
 		case "unsubscribe":
 			s.Unsubscribe(message.Topic, message.Symbol, conn)
+		}
+	}
+}
+
+func (s *WebSocketServer) writeMessages(client *websocketClient) {
+	defer client.cancel()
+	defer client.conn.CloseNow()
+
+	for {
+		select {
+		case <-client.ctx.Done():
+			return
+
+		case data := <-client.outbound:
+			writeCtx, cancel := context.WithTimeout(client.ctx, 2*time.Second)
+			err := client.conn.Write(writeCtx, websocket.MessageText, data)
+			cancel()
+
+			if err != nil {
+				log.Printf("websocket write error: %v", err)
+				return
+			}
 		}
 	}
 }
@@ -166,11 +206,11 @@ func (s *WebSocketServer) Unsubscribe(
 	log.Println("unsubscribed from:", topic)
 }
 
-func (s *WebSocketServer) RemoveConnection(
-	conn *websocket.Conn,
-) {
+func (s *WebSocketServer) RemoveConnection(conn *websocket.Conn) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+
+	client := s.clients[conn]
+	delete(s.clients, conn)
 
 	for topic, connections := range s.subscriptions {
 		delete(connections, conn)
@@ -178,6 +218,12 @@ func (s *WebSocketServer) RemoveConnection(
 		if len(connections) == 0 {
 			delete(s.subscriptions, topic)
 		}
+	}
+
+	s.mu.Unlock()
+
+	if client != nil {
+		client.cancel()
 	}
 }
 
@@ -187,26 +233,33 @@ func (s *WebSocketServer) Publish(
 	symbol string,
 	data []byte,
 ) {
-	s.mu.RLock()
-
-	connections := make([]*websocket.Conn, 0)
-	subKey := getSubKey(symbol, topic)
-
-	for conn := range s.subscriptions[subKey] {
-		connections = append(connections, conn)
+	if ctx.Err() != nil {
+		return
 	}
 
+	s.mu.RLock()
+	subKey := getSubKey(symbol, topic)
+	clients := make([]*websocketClient, 0, len(s.subscriptions[subKey]))
+
+	for conn := range s.subscriptions[subKey] {
+		if client := s.clients[conn]; client != nil {
+			clients = append(clients, client)
+		}
+	}
 	s.mu.RUnlock()
 
-	for _, conn := range connections {
-		err := conn.Write(
-			ctx,
-			websocket.MessageText,
-			data,
-		)
+	for _, client := range clients {
+		if client.ctx.Err() != nil {
+			continue
+		}
 
-		if err != nil {
-			log.Println("websocket write error:", err)
+		select {
+		case <-client.ctx.Done():
+		case client.outbound <- data:
+		default:
+			log.Printf("websocket outbound queue full: symbol=%s topic=%s; disconnecting client", symbol, topic)
+			client.cancel()
+			client.conn.CloseNow()
 		}
 	}
 }

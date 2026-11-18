@@ -1,8 +1,10 @@
 # BIST Trading Platform
 
-A multi-service trading simulation platform centered on a Go limit order
-matching engine and inspired by the price-time priority rules used in exchange
-order books.
+A multi-service trading simulation platform built around a deterministic Go
+matching engine, PostgreSQL persistence, and a live React trading screen. The
+project focuses on the engineering behind exchange-style order flow: price-time
+priority, serialized matching, transactional results, bounded queues, and
+observable performance under concurrent submissions.
 
 ## Project overview
 
@@ -11,9 +13,10 @@ submission queue. The HTTP path creates and persists the order before handing it
 to one background worker, while matching for the symbol remains sequential and
 deterministic even when HTTP requests arrive concurrently.
 
-The repository is organized as a monorepo. The Go backend is implemented now;
-the user-facing frontend is the next active component, and a Java bot simulator
-is planned afterward.
+The repository is a monorepo. The Go matching-engine API and the first React
+trading screen are implemented. The Java bot simulator is the next planned
+service and will act as an external API client rather than owning matching
+logic.
 
 The core backend currently supports:
 
@@ -30,9 +33,20 @@ The core backend currently supports:
 - Aggregated, consistently read order book snapshots
 - Startup reconstruction from resting PostgreSQL orders
 
-The HTTP API currently exposes limit-order submission and level-based order book
-snapshots. A WebSocket market feed publishes completed order book, last trade
-price, and trade updates.
+The HTTP API exposes limit-order submission, symbol summaries, and level-based
+order book snapshots. The React screen displays market summary and depth, accepts
+limit orders, and streams market depth, last trade price, and live executions
+over WebSocket. The trade list is session-only; persisted trade-history queries
+are not yet exposed by the API.
+
+### Engineering highlights
+
+- Deterministic price-time matching behind a serialized per-symbol worker
+- Transactional PostgreSQL persistence, with `pgx.Batch` for matching results
+- Bounded asynchronous WebSocket delivery that keeps socket writes off the
+  matching worker
+- Measured local-run median queue wait reduced from **4.01 s to 65 ms** after
+  batching database writes; detailed measurements and caveats follow below
 
 ## Core design
 
@@ -55,6 +69,11 @@ The queued command contains a readiness signal. The worker does not start
 matching until the HTTP submission path has finished saving `PENDING`. The
 worker then processes commands one at a time, preventing concurrent mutation of
 the same order book.
+
+WebSocket delivery is isolated from matching. Each client has a bounded
+outbound buffer and a dedicated writer goroutine; the worker enqueues market
+updates without performing socket writes itself. A client whose outbound buffer
+fills is disconnected rather than allowed to block the matching worker.
 
 ### Staged state changes
 
@@ -89,6 +108,43 @@ never a partially mutated book.
 The matching package does not access PostgreSQL. It produces a match plan while
 the application and storage packages own sequencing and persistence. This keeps
 the matching algorithm deterministic and independently testable.
+
+## Performance engineering
+
+The order path is instrumented by order ID and sequence. Logs separate submit
+lock wait, queue wait, matching preparation, persistence, apply, and WebSocket
+fanout. Persistence logs also separate transaction begin, the pgx batch, and
+commit. This made it possible to distinguish worker backlog from database work
+and socket delivery instead of attributing delays to CPU without evidence.
+
+The first measured bottleneck was per-row database execution. A heavily matched
+order with 27 trades spent about 152 ms in `PersistSubmission`: 28 order updates
+took 48 ms, 27 trade inserts took 35 ms, and 56 event inserts took 65 ms; commit
+took under 2 ms. The transaction was changed to queue the order updates, trades,
+and events through `pgx.Batch`, while retaining one transaction and checking
+every order update result before commit.
+
+| Local ASELS load log | Before batching | After batching |
+| --- | ---: | ---: |
+| Worker queue wait, median | 4.01 s | 65 ms |
+| Worker queue wait, p95 | 5.21 s | 192 ms |
+| Worker queue wait, maximum | 5.28 s | 209 ms |
+| `PersistSubmission`, median | 8.76 ms | 4.39 ms |
+| `PersistSubmission`, p95 | 37.64 ms | 28.34 ms |
+| `PersistSubmission`, maximum | 152.31 ms | 50.89 ms |
+| Peak observed queue length | 335 | 11 |
+
+The after-batching run recorded a median batch duration of 1.16 ms and a p95 of
+2.12 ms. These are diagnostic runs, not a controlled benchmark: the log files do
+not record machine specifications, PostgreSQL configuration, or the exact load
+script arguments. Treat the comparison as evidence of improvement in these
+runs, not a guaranteed throughput claim.
+
+One remaining measured cost is submission contention before enqueueing. In the
+latest run, waiting for the per-symbol submission mutex was 64 ms at the median
+and 142 ms at p95. That lock currently protects sequence assignment and the
+initial database and enqueue steps. It is a separate delay from worker queue
+wait and should be evaluated without weakening order sequencing.
 
 ## Submission architecture
 
@@ -143,10 +199,10 @@ docker-compose.yml        shared local infrastructure
 ## Current boundaries
 
 The current version does not include market orders, cancel/modify operations,
-an implemented frontend, authentication, or external message brokers. The
-frontend will support both live market views and user order entry. Authentication
-and authorization are planned before persistent user identity and order ownership
-are introduced.
+authentication, persistent user identity, or external message brokers. The
+React application currently supports live market views and demo limit-order
+entry; user-specific order ownership and authentication remain later work. The
+Java bot simulator is planned and does not own matching or persistence.
 
 PostgreSQL and process memory cannot participate in one distributed atomic
 transaction. The current ordering prevents memory changes when normal database
@@ -158,32 +214,24 @@ but ungraceful process failure can leave a persisted `PENDING` order unprocessed
 Reloading those pending orders is planned recovery work and is not implemented
 yet.
 
-The staged submission refactor also still needs the background persistence path
-to update the already inserted incoming order. `PersistSubmission` currently
-attempts to insert it again, so this integration must be completed before the
-asynchronous submission path is considered finished.
-
 ## Roadmap
 
-### V1 — Go backend (current)
+### V1 — Go backend (core implemented; hardening ongoing)
 
-- Complete the REST surface for orders, trades, market data, and health
-- Polish error responses and operational configuration
-- Add end-to-end API coverage and deployment documentation
+- Price-time matching, tick validation, bounded per-symbol worker queue, and
+  PostgreSQL persistence are implemented
+- HTTP order submission, symbol summary, order book snapshots, and WebSocket
+  market updates are implemented
+- Continue expanding end-to-end coverage, operational configuration, and
+  recovery behavior
 
-### V2 — Frontend trading application
+### V2 — React trading application (base screen implemented)
 
-- Display order book levels and recent trades
-- Show best bid, best ask, spread, and last trade price
-- Add an order book chart that compares bid and ask quantities across price
-  levels
-- Add a live trade table below the chart showing price, quantity, buyer, seller,
-  and execution time
-- Add a simple manual order-entry screen
-- Consume the existing WebSocket market feed for live board updates
-- Grow beyond market display into user order submission and order-state views
-- Add authentication and authorization when persistent user identity and order
-  ownership enter scope
+- Display market summary, aggregated order book levels, and live executions
+- Submit demo BUY and SELL limit orders through the Go API
+- Consume the WebSocket feed for market depth, last price, and trades
+- Add user identity, authorization, ownership, and user-specific order state in
+  the later identity phase
 
 [![Order book chart visual reference](https://www.highcharts.com/demo/images/samples/stock/demo/orderbook-chart/thumbnail.webp)](https://www.highcharts.com/demo/stock/orderbook-chart)
 
@@ -193,15 +241,15 @@ The frontend will build this view from aggregated order book levels supplied by
 the Go API. Highcharts is currently a visual reference; the charting library
 will be selected during V2.
 
-Planned live trade table:
+Live trade table design reference:
 
 ![Planned live trade table showing price, quantity, buyer, seller, and execution time](docs/assets/trade-table-preview.png)
 
-New executions will appear at the top of the table, with existing rows moving
-downward. A short recording of the live animation will replace this static
-preview after the V2 frontend is implemented.
+The current React screen displays live executions from the WebSocket feed.
+Persisted trade-history queries and the referenced order book chart remain
+future enhancements.
 
-### V3 — Java bot simulator
+### V3 — Java bot simulator (planned)
 
 - Build a separate Spring Boot service that submits orders through the Go API
 - Support configurable bot count, order rate, symbols, prices, and quantities
@@ -382,7 +430,8 @@ go test -count=1 ./...
 
 ### Coverage
 
-As of 29/08/2026, core statement coverage includes:
+Last recorded core statement coverage snapshot (2026-08-29; not rerun for this
+README update):
 
 - matching engine: 80.0%
 - domain model: 87.2%
