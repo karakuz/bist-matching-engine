@@ -38,7 +38,7 @@ func (engine *Engine) LastTradePrice() int64 {
 	defer engine.mutex.RUnlock()
 	return engine.book.GetLastTradePrice()
 }
-func (engine *Engine) OpeningPrice() int64{
+func (engine *Engine) OpeningPrice() int64 {
 	return engine.book.GetOpeningPrice()
 }
 func (engine *Engine) Symbol() domain.Symbol {
@@ -111,6 +111,7 @@ func (engine *Engine) prepare(order domain.Order) (MatchPlan, error) {
 	}
 
 	incomingOrder := order
+	incomingOrder.Status = domain.StatusOpen
 	restingOrderUpdates := make([]domain.Order, 0, len(candidates))
 	trades := make([]domain.Trade, 0, len(candidates))
 
