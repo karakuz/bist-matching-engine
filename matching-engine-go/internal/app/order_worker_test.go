@@ -48,6 +48,100 @@ type publishCall struct {
 	data   []byte
 }
 
+type committedApplyFailureStore struct {
+	*fakeOrderWorkerStore
+	incoming     domain.Order
+	trades       []domain.Trade
+	afterPersist func() error
+}
+
+func (store *committedApplyFailureStore) PersistSubmission(ctx context.Context, incoming domain.Order, resting []domain.Order, trades []domain.Trade, events []domain.OrderEvent) error {
+	if err := store.fakeOrderWorkerStore.PersistSubmission(ctx, incoming, resting, trades, events); err != nil {
+		return err
+	}
+	store.incoming = incoming
+	store.trades = append([]domain.Trade(nil), trades...)
+	return store.afterPersist()
+}
+
+func TestOrderWorkerStopsAfterCommittedApplyFailure(t *testing.T) {
+	store := &committedApplyFailureStore{
+		fakeOrderWorkerStore: &fakeOrderWorkerStore{
+			persistSubmissionStartedSignal: make(chan bool, 2),
+			startPersistSubmission:         make(chan bool),
+			updatedAsFailedSignal:          make(chan bool, 2),
+		},
+	}
+	publisher := &fakeWsServer{}
+	worker := getTestWorker(t, "ASELS", store, publisher, 2)
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			close(store.startPersistSubmission)
+		}
+	})
+	restingOrder := domain.Order{
+		ID: "resting", ParticipantID: 1, Symbol: worker.symbol,
+		SessionDate: worker.engine.SessionDate(), Side: domain.SideSell,
+		Price: 30000, Quantity: 5, RemainingQuantity: 5, Status: domain.StatusOpen,
+	}
+	if err := worker.engine.Apply(matching.MatchPlan{IncomingOrder: restingOrder}); err != nil {
+		t.Fatalf("seed resting order: %v", err)
+	}
+	// Deliberately invalidate the book after simulated commit to exercise the
+	// defensive Apply failure path. The production worker does not do this.
+	store.afterPersist = func() error {
+		extraRestingOrder := restingOrder
+		extraRestingOrder.ID = "unexpected-resting"
+		return worker.engine.Apply(matching.MatchPlan{IncomingOrder: extraRestingOrder})
+	}
+	request := SubmitOrderRequest{
+		ParticipantId: 1, Symbol: "ASELS", Side: domain.SideBuy, Price: 30000, Quantity: 10,
+	}
+	if err := worker.Submit(context.Background(), request); err != nil {
+		t.Fatalf("submit first order: %v", err)
+	}
+	<-store.persistSubmissionStartedSignal
+	if err := worker.Submit(context.Background(), request); err != nil {
+		t.Fatalf("queue second order: %v", err)
+	}
+	stopDone := make(chan struct{})
+	go func() {
+		worker.Stop()
+		close(stopDone)
+	}()
+	close(store.startPersistSubmission)
+	released = true
+	select {
+	case <-stopDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("worker or concurrent Stop blocked after committed Apply failure")
+	}
+	if store.incoming.Status != domain.StatusPartiallyFilled || store.incoming.RemainingQuantity != 5 || len(store.trades) != 1 {
+		t.Fatalf("expected committed partial fill to be preserved, got %+v and %d trades", store.incoming, len(store.trades))
+	}
+	if len(store.calls) != 2 {
+		t.Fatalf("expected only two initial inserts, got %+v", store.calls)
+	}
+	for _, call := range store.calls {
+		if call.method != "insert" {
+			t.Fatalf("committed order must not be overwritten: %+v", call)
+		}
+	}
+	if len(worker.queue) != 1 {
+		t.Fatalf("expected queued order left unprocessed, got queue length %d", len(worker.queue))
+	}
+	if len(publisher.calls) != 0 {
+		t.Fatal("failed Apply must not publish market data")
+	}
+	if err := worker.Submit(context.Background(), request); !errors.Is(err, ErrWorkerStopped) {
+		t.Fatalf("expected stopped worker to reject new orders, got %v", err)
+	}
+	if len(store.calls) != 2 {
+		t.Fatal("stopped worker inserted another order")
+	}
+}
+
 type fakeWsServer struct {
 	calls           []publishCall
 	publishedSignal chan struct{}

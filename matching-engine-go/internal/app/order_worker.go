@@ -20,6 +20,7 @@ import (
 var (
 	ErrSubmissionQueueFull = errors.New("submission queue is full")
 	ErrWorkerStopped       = errors.New("order worker is stopped")
+	ErrApplyCommittedPlan  = errors.New("failed to apply committed match plan")
 )
 
 type orderWorkerStore interface {
@@ -157,16 +158,14 @@ func (worker *OrderWorker) Submit(ctx context.Context, request SubmitOrderReques
 }
 
 func (worker *OrderWorker) Stop() {
-	worker.mutex.Lock()
 	worker.submissionMutex.Lock()
-	defer worker.submissionMutex.Unlock()
 
 	if !worker.stopped {
 		worker.stopped = true
 		close(worker.queue)
 	}
 
-	worker.mutex.Unlock()
+	worker.submissionMutex.Unlock()
 
 	<-worker.done
 }
@@ -183,6 +182,17 @@ func (worker *OrderWorker) run() {
 		started := time.Now()
 
 		_, plan, err := worker.process(worker.ctx, *order)
+		if errors.Is(err, ErrApplyCommittedPlan) {
+			log.Printf("worker stopped: symbol=%s order=%s sequence=%d; database committed but apply failed: %v", worker.symbol.Code, order.ID, order.Sequence, err)
+			worker.submissionMutex.Lock()
+			if !worker.stopped {
+				worker.stopped = true
+				close(worker.queue)
+			}
+			worker.submissionMutex.Unlock()
+			worker.mutex.RUnlock()
+			return
+		}
 		if err != nil {
 			log.Printf(
 				"worker failed to process order id=%s sequence=%d: %v",
@@ -242,8 +252,7 @@ func (worker *OrderWorker) process(ctx context.Context, order domain.Order) ([]d
 
 	err = worker.engine.Apply(plan)
 	if err != nil {
-		err = fmt.Errorf("apply persisted match plan: %w", err)
-		return []domain.OrderEvent{}, matching.MatchPlan{}, err
+		return events, plan, fmt.Errorf("%w: %w", ErrApplyCommittedPlan, err)
 	}
 
 	return events, plan, nil

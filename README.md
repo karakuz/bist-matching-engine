@@ -85,6 +85,14 @@ copies, and trades without modifying the live book. After PostgreSQL commits the
 complete submission, `Engine.Apply` updates the in-memory state and last trade
 price.
 
+If `Engine.Apply` returns an error after the database commit, the worker preserves
+the committed order/trade records, publishes no market updates for that command,
+and stops processing and accepting orders for that symbol. Commands already queued
+remain unprocessed as `PENDING`; automatic recovery is not implemented. This path
+is distinguished by `ErrApplyCommittedPlan` and does not overwrite the incoming
+order with `FAILED` and its original quantity. `Stop` releases the submission lock
+before waiting for worker termination, including when shutdown overlaps this path.
+
 ### Transactional persistence
 
 Persistence currently occurs in two stages. Before enqueueing, `Submit` inserts
