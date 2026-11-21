@@ -27,7 +27,7 @@ The core backend currently supports:
 - Opening-price-based daily price limits
 - Per-symbol, per-session order sequencing assigned before enqueue
 - Bounded worker queues for overload protection
-- Explicit `CREATED` to `PENDING` or `REJECTED` submission states
+- Orders inserted as `PENDING`, with `REJECTED` recorded when the queue is full
 - Transactional persistence of orders, trades, resting-order updates, and events
 - Staged in-memory mutation after successful database persistence
 - Aggregated, consistently read order book snapshots
@@ -61,19 +61,22 @@ partial fills as well as execution across multiple price levels.
 
 Each symbol has one `OrderWorker` and one bounded Go channel. Concurrent calls to
 `Submit` are serialized while the next session sequence is assigned, the
-`CREATED` order is inserted, and the enqueue result is recorded. A successful
-send changes the persisted status to `PENDING`; a full queue changes it to
+order is inserted as `PENDING`, and the order is enqueued. A successful send
+needs no additional status update; a full queue changes the persisted status to
 `REJECTED` and returns `503` instead of allowing unbounded memory growth.
 
-The queued command contains a readiness signal. The worker does not start
-matching until the HTTP submission path has finished saving `PENDING`. The
-worker then processes commands one at a time, preventing concurrent mutation of
-the same order book.
+Only orders whose inserts have succeeded are enqueued, so the queued command
+needs no readiness signal. The worker processes commands one at a time,
+preventing concurrent mutation of the same order book.
 
 WebSocket delivery is isolated from matching. Each client has a bounded
 outbound buffer and a dedicated writer goroutine; the worker enqueues market
 updates without performing socket writes itself. A client whose outbound buffer
 fills is disconnected rather than allowed to block the matching worker.
+Each writer combines messages already waiting in its queue into one WebSocket
+message containing a JSON array, preserving FIFO order and the individual topic
+payloads. A single pending message keeps its original JSON-object format. Clients
+must accept both formats; the frontend dispatches array entries in order.
 
 ### Staged state changes
 
@@ -85,8 +88,9 @@ price.
 ### Transactional persistence
 
 Persistence currently occurs in two stages. Before enqueueing, `Submit` inserts
-the incoming order as `CREATED`, then records the enqueue result as `PENDING` or
-`REJECTED`. After a `PENDING` command reaches the worker, one pgx transaction is
+the incoming order as `PENDING`. A full queue requires a separate `REJECTED`
+update; successful enqueueing requires no further write. After a command reaches
+the worker, one pgx transaction is
 responsible for the matching result:
 
 - The final incoming order
@@ -111,11 +115,13 @@ the matching algorithm deterministic and independently testable.
 
 ## Performance engineering
 
-The order path is instrumented by order ID and sequence. Logs separate submit
-lock wait, queue wait, matching preparation, persistence, apply, and WebSocket
-fanout. Persistence logs also separate transaction begin, the pgx batch, and
-commit. This made it possible to distinguish worker backlog from database work
-and socket delivery instead of attributing delays to CPU without evidence.
+The order path is instrumented by order ID and sequence. Detailed diagnostic
+logs originally separated submission lock wait, queue wait, matching preparation,
+persistence, apply, and WebSocket fanout, including transaction begin, batch, and
+commit. Normal timing output now retains two application records per successful
+order: total submission time, then queue wait and worker processing time together.
+Errors and Gin request logs remain enabled. Removing the detailed synchronous
+logging reduces measurement overhead on the submission and worker paths.
 
 The first measured bottleneck was per-row database execution. A heavily matched
 order with 27 trades spent about 152 ms in `PersistSubmission`: 28 order updates
@@ -140,11 +146,112 @@ not record machine specifications, PostgreSQL configuration, or the exact load
 script arguments. Treat the comparison as evidence of improvement in these
 runs, not a guaranteed throughput claim.
 
-One remaining measured cost is submission contention before enqueueing. In the
-latest run, waiting for the per-symbol submission mutex was 64 ms at the median
-and 142 ms at p95. That lock currently protects sequence assignment and the
-initial database and enqueue steps. It is a separate delay from worker queue
-wait and should be evaluated without weakening order sequencing.
+An earlier run measured submission-mutex wait at 64 ms median and 142 ms p95.
+The lock still protects sequence assignment, initial persistence, and enqueueing.
+Successful submissions now insert directly as `PENDING`, removing the second
+status write and the worker readiness handshake. Queue-full rejection still
+requires a separate status update.
+
+### Database and logging comparison — 2026-11-21
+
+From the repository root, the reduced-log comparison runs used:
+
+```powershell
+.\matching-engine-go\tests\asels.book.tester.ps1 -DurationSeconds 10 -Workers 8
+```
+
+Each of the eight workers submits requests sequentially for ten seconds. Prices
+and quantities are randomized, and the workers are not synchronized at startup.
+Only log entries appended during this run were analyzed. All **5,618** requests
+returned `202`, and every submitted order had a matching worker-completion record;
+none remained unfinished in the captured log. Processing ran from approximately
+21:30:30 through 21:30:49, including draining the queue after submissions stopped.
+
+| Measurement | Earlier verbose-log run | Previous reduced-log run | Latest reduced-log run |
+| --- | ---: | ---: | ---: |
+| Submitted and processed orders | 881 | 4,831 | 5,618 |
+| Total submission, median | 88.26 ms | 12.57 ms | 6.73 ms |
+| Total submission, p95 | 115.78 ms | 14.86 ms | 13.69 ms |
+| Total submission, maximum | 191.51 ms | 21.33 ms | 36.11 ms |
+| Worker processing, median | 9.49 ms | 3.64 ms | 3.22 ms |
+| Worker processing, p95 | 37.09 ms | 5.23 ms | 4.38 ms |
+| Worker processing, maximum | 119.92 ms | 50.62 ms | 47.65 ms |
+| Worker queue wait, median | 3.80 s | 4.67 s | 4.93 s |
+| Worker queue wait, p95 | 5.21 s | 8.04 s | 7.53 s |
+| Worker queue wait, maximum | 5.28 s | 8.37 s | 7.80 s |
+
+Median worker processing was approximately **66% lower** than in the verbose-log
+run. Faster submission also allowed substantially more orders into the queue;
+queue latency did not improve at the median because arrivals still outpaced the
+single symbol worker during the burst. Worker processing includes matching,
+persistence, apply, and fanout enqueueing, but excludes queue wait and asynchronous
+socket writes. Total submission includes validation, lock wait, initial persistence,
+and enqueueing. Percentiles use the nearest-rank method.
+
+These are local diagnostic comparisons, not controlled benchmark results.
+Randomized match counts, existing book state, machine load, and database conditions
+were not held constant. The reduced-log runs used the same explicit script
+arguments above; the verbose-log run's arguments were not captured in its log.
+The comparison supports logging overhead as a contributor, but does not isolate
+its effect or establish a guaranteed throughput increase.
+
+The 5,618-order run also recorded **two WebSocket outbound-buffer overflows**, each
+disconnecting a client, followed by cancellation errors in its reader and writer.
+There were no logged order-processing failures or queue-full submission rejections.
+Asynchronous delivery kept these socket waits off the matching worker, but sustained
+market-feed delivery under this burst remains unresolved. Buffer capacities and
+timeouts now have named package/module-level settings; extracting those settings
+did not change their values or increase delivery capacity.
+
+### WebSocket batching and frontend profiling — 2026-11-21
+
+The per-client WebSocket writer now collects messages already waiting in its
+outbound channel and sends them together as one JSON array. It preserves message
+order and the separate price, trade, and depth payloads. It does not wait for more
+messages to build a batch; a single message retains its original object format.
+The frontend accepts both objects and arrays and dispatches batch entries in order.
+Batching reduces the number of socket writes when messages have accumulated, but
+does not guarantee delivery: subsequent load tests still recorded write timeouts.
+
+Frontend inspection during a burst reproduced live price advancing ahead of
+History. Received trades were being queued and displayed one every 10 ms, limiting
+playback to approximately 100 trades per second even when a whole batch had arrived.
+`ENABLE_TRADE_PLAYBACK` is now `false`, so each received trade batch updates History
+immediately, newest first, while retaining deduplication and the 60-row display cap.
+The playback code and 10 ms interval remain available for re-enabling later. This
+removes artificial display pacing; it does not provide replay of missed trades or
+guarantee atomic synchronization of the separate price and trade updates.
+
+With playback disabled, Chrome's Performance tab was recorded during another
+10-second, 8-worker burst. All **4,733** submitted orders completed. Backend median
+submission time was **7.29 ms**, median queue wait **5.48 s**, and median worker
+processing **4.28 ms**. Two WebSocket writes exceeded the configured 2-second
+timeout and disconnected clients. Live price and the newest History row matched
+in the observed UI samples, but these samples do not prove synchronization for
+every update.
+
+Within the selected **25.18-second** trace range, Chrome reported **16.81 seconds
+of scripting**, **695 ms of rendering**, and **375 ms of painting**. The Bottom-up
+view showed these self times:
+
+| Activity | Self time |
+| --- | ---: |
+| `createTask` | 4.77 s |
+| `run` | 3.91 s |
+| `Run console task` | 3.80 s |
+| Price formatter `fmt` | 2.34 s |
+
+The local React development JSX runtime invokes `console.createTask`, identifying
+development/debug instrumentation as a substantial cost in this recording. The
+trace confirms heavy browser scripting but does not establish that it alone caused
+the socket timeouts. Recording and development mode also affect these measurements;
+a production-build comparison has not yet been run.
+
+`fmt` now reuses a module-level `Intl.NumberFormat('tr-TR', ...)` instead of calling
+`toLocaleString` with formatting options on every render. Trade-time formatting
+also reuses a module-level `Intl.DateTimeFormat`. The frontend build and lint checks
+passed after the price-formatter change. Its runtime improvement has not yet been
+remeasured, and WebSocket delivery timeouts remain unresolved.
 
 ## Submission architecture
 
@@ -153,13 +260,11 @@ flowchart TD
     A[POST /orders] --> B[Gin HTTP handler]
     B --> C[Validate and create order]
     C --> D[Assign next session sequence]
-    D --> E[Insert order as CREATED]
+    D --> E[Insert order as PENDING]
     E --> F{Bounded queue send}
     F -->|Full| G[Persist REJECTED and return 503]
-    F -->|Queued| H[Persist PENDING]
-    H --> I[Signal command ready]
-    I --> J[Return HTTP 201]
-    I --> K[Single per-symbol worker]
+    F -->|Queued| J[Return HTTP 202]
+    F -->|Queued| K[Single per-symbol worker]
     K --> L[Engine.Prepare]
     L --> M[PersistSubmission transaction]
     M -->|Rollback| N[Log background failure; live book unchanged]
@@ -167,7 +272,7 @@ flowchart TD
     O --> P[Update live book and last trade price]
 ```
 
-The `201` response confirms that the order was created, successfully queued, and
+The `202` response confirms that the order was created, successfully queued, and
 saved as `PENDING`; it does not contain the final matching result. The command is
 processed completely before the worker begins the next command for that symbol.
 

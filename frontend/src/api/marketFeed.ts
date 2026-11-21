@@ -7,6 +7,8 @@ import type {
 
 export type MarketFeedStatus = 'connecting' | 'live' | 'reconnecting'
 
+const RECONNECT_DELAY_MS = 2000
+
 type MarketFeedHandlers = {
   onMessage: (message: MarketFeedMessage) => void
   onStatusChange: (status: MarketFeedStatus) => void
@@ -65,10 +67,13 @@ export function connectMarketFeed(
 
     socket.onmessage = (event) => {
       try {
-        const message: unknown = JSON.parse(event.data)
+        const payload: unknown = JSON.parse(event.data)
+        const messages: unknown[] = Array.isArray(payload) ? payload : [payload]
 
-        if (isMarketFeedMessage(message) && message.symbol === symbol) {
-          handlers.onMessage(message)
+        for (const message of messages) {
+          if (isMarketFeedMessage(message) && message.symbol === symbol) {
+            handlers.onMessage(message)
+          }
         }
       } catch {
         return
@@ -78,7 +83,7 @@ export function connectMarketFeed(
     socket.onclose = () => {
       if (!isClosed) {
         handlers.onStatusChange('reconnecting')
-        reconnectTimer = window.setTimeout(connect, 2000)
+        reconnectTimer = window.setTimeout(connect, RECONNECT_DELAY_MS)
       }
     }
   }

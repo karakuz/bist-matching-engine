@@ -13,6 +13,11 @@ import (
 
 type WsTopic string
 
+var (
+	websocketOutboundCapacity = 1024
+	websocketWriteTimeout     = 2 * time.Second
+)
+
 const (
 	CurrentPriceTopic WsTopic = "CURRENT_PRICE"
 	MarketDepthTopic  WsTopic = "MARKET_DEPTH"
@@ -93,7 +98,7 @@ func (s *WebSocketServer) HandleConnection(w http.ResponseWriter, r *http.Reques
 
 	client := &websocketClient{
 		conn:     conn,
-		outbound: make(chan []byte, 256),
+		outbound: make(chan []byte, websocketOutboundCapacity),
 		ctx:      ctx,
 		cancel:   cancel,
 	}
@@ -144,7 +149,23 @@ func (s *WebSocketServer) writeMessages(client *websocketClient) {
 			return
 
 		case data := <-client.outbound:
-			writeCtx, cancel := context.WithTimeout(client.ctx, 2*time.Second)
+			// Drain only the messages already waiting, so continuous arrivals
+			// cannot postpone this write indefinitely.
+			pending := len(client.outbound)
+			if pending > 0 {
+				messages := make([]json.RawMessage, 0, pending+1)
+				messages = append(messages, json.RawMessage(data))
+				for range pending {
+					messages = append(messages, json.RawMessage(<-client.outbound))
+				}
+				var err error
+				data, err = json.Marshal(messages)
+				if err != nil {
+					log.Printf("websocket batch encoding error: %v", err)
+					return
+				}
+			}
+			writeCtx, cancel := context.WithTimeout(client.ctx, websocketWriteTimeout)
 			err := client.conn.Write(writeCtx, websocket.MessageText, data)
 			cancel()
 

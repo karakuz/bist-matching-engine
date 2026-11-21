@@ -25,9 +25,8 @@ type storeCall struct {
 type fakeOrderWorkerStore struct {
 	calls []storeCall
 
-	updateStartedSignal   chan bool
-	updateSignal          chan bool
-	updatedSignal         chan bool
+	insertStartedSignal   chan bool
+	startInsertOrder      chan bool
 	updatedAsFailedSignal chan bool
 
 	persistSubmissionStartedSignal chan bool
@@ -37,6 +36,7 @@ type fakeOrderWorkerStore struct {
 
 	failInsertOrder       bool
 	insertSequenceAttempt chan int64
+	persistedSequences    chan int64
 
 	failUpdateOrder           bool
 	isPersistSubmissionCalled bool
@@ -66,6 +66,12 @@ func (wsServer *fakeWsServer) Publish(ctx context.Context, topic WsTopic, symbol
 }
 
 func (store *fakeOrderWorkerStore) InsertOrder(ctx context.Context, order domain.Order) error {
+	if store.insertStartedSignal != nil {
+		store.insertStartedSignal <- true
+	}
+	if store.startInsertOrder != nil {
+		<-store.startInsertOrder
+	}
 	defer func() {
 		if store.insertSequenceAttempt != nil {
 			store.insertSequenceAttempt <- order.Sequence
@@ -84,14 +90,6 @@ func (store *fakeOrderWorkerStore) InsertOrder(ctx context.Context, order domain
 }
 
 func (store *fakeOrderWorkerStore) UpdateOrders(ctx context.Context, orders []domain.Order) error {
-	if store.updateStartedSignal != nil {
-		store.updateStartedSignal <- true
-	}
-
-	if store.updateSignal != nil {
-		<-store.updateSignal
-	}
-
 	for _, order := range orders {
 		store.calls = append(store.calls, storeCall{
 			method: "update",
@@ -106,10 +104,6 @@ func (store *fakeOrderWorkerStore) UpdateOrders(ctx context.Context, orders []do
 		return ErrFakeUpdateErr
 	}
 
-	if store.updatedSignal != nil {
-		store.updatedSignal <- true
-	}
-
 	return nil
 }
 
@@ -121,6 +115,9 @@ func (store *fakeOrderWorkerStore) PersistSubmission(ctx context.Context, incomi
 	}()
 
 	store.isPersistSubmissionCalled = true
+	if store.persistedSequences != nil {
+		store.persistedSequences <- incoming.Sequence
+	}
 
 	if store.persistSubmissionStartedSignal != nil {
 		store.persistSubmissionStartedSignal <- true
@@ -162,8 +159,8 @@ func getTestWorker(t *testing.T, symbolCode string, store orderWorkerStore, wsSe
 /*
 Verify that a valid submission:
 Receives lastSequence + 1.
-Is first inserted as CREATED.
-Is updated to PENDING after enqueue succeeds.
+Is inserted as PENDING.
+Does not issue a separate pending-status update.
 Returns nil.
 */
 func TestOrderWorkerSubmitQueuesPendingOrder(t *testing.T) {
@@ -192,8 +189,8 @@ func TestOrderWorkerSubmitQueuesPendingOrder(t *testing.T) {
 		t.Fatalf("expected initialNextSequence+1 = currentNextSequence; initialNextSequence: %d, currentNextSequence: %d", initialNextSequence, currentNextSequence)
 	}
 
-	if len(store.calls) != 2 {
-		t.Fatalf("expected 2 storage calls, got %d", len(store.calls))
+	if len(store.calls) != 1 {
+		t.Fatalf("expected 1 storage call, got %d", len(store.calls))
 	}
 
 	insertCall := store.calls[0]
@@ -201,117 +198,95 @@ func TestOrderWorkerSubmitQueuesPendingOrder(t *testing.T) {
 		t.Fatalf("expected first call to be insert, got %s", insertCall.method)
 	}
 
-	if insertCall.order.Status != domain.StatusCreated {
-		t.Fatalf("expected inserted status CREATED, got %s", insertCall.order.Status)
+	if insertCall.order.Status != domain.StatusPending {
+		t.Fatalf("expected inserted status PENDING, got %s", insertCall.order.Status)
 	}
-
-	updateCall := store.calls[1]
-	if updateCall.method != "update" {
-		t.Fatalf("expected second call to be update, got %s", updateCall.method)
-	}
-
-	if updateCall.order.Status != domain.StatusPending {
-		t.Fatalf("expected updated status PENDING, got %s", updateCall.order.Status)
-	}
-
 }
 
-/*
-Block UpdateOrders in the fake store and verify PersistSubmission has not started.
-Release UpdateOrders, then verify processing begins.
-This directly tests the ready channel.
-*/
-func TestOrderWorkerWaitsForPendingUpdateBeforeProcessing(t *testing.T) {
-	symbolCode := "ASELS"
+func TestOrderWorkerWaitsForInsertBeforeProcessing(t *testing.T) {
 	store := &fakeOrderWorkerStore{
-		updateStartedSignal:       make(chan bool),
-		updateSignal:              make(chan bool),
-		updatedSignal:             make(chan bool),
-		isPersistSubmissionCalled: false,
+		insertStartedSignal:            make(chan bool),
+		startInsertOrder:               make(chan bool),
+		persistSubmissionStartedSignal: make(chan bool, 1),
 	}
-	fakeWsServer := &fakeWsServer{}
-
-	worker := getTestWorker(t, symbolCode, store, fakeWsServer, 10)
-	ctx := context.Background()
+	worker := getTestWorker(t, "ASELS", store, &fakeWsServer{}, 10)
+	t.Cleanup(func() { close(store.startInsertOrder) })
 	request := SubmitOrderRequest{
-		ParticipantId: 1,
-		Symbol:        symbolCode,
-		Side:          domain.SideBuy,
-		Price:         30000,
-		Quantity:      10,
+		ParticipantId: 1, Symbol: "ASELS", Side: domain.SideBuy, Price: 30000, Quantity: 10,
 	}
-
 	submitDone := make(chan error, 1)
+	go func() { submitDone <- worker.Submit(context.Background(), request) }()
 
-	go func() {
-		submitDone <- worker.Submit(ctx, request)
-	}()
-
-	<-store.updateStartedSignal
-	if len(store.calls) != 1 {
-		t.Fatalf("expected len(store.calls) == 1, got: %d", len(store.calls))
+	<-store.insertStartedSignal
+	if len(worker.queue) != 0 {
+		t.Fatal("order queued before insert completed")
+	}
+	select {
+	case <-store.persistSubmissionStartedSignal:
+		t.Fatal("processing started before insert completed")
+	default:
 	}
 
-	firstCall := store.calls[0]
-	if firstCall.method != "insert" {
-		t.Fatalf("Expected first call's method to be 'insert', got: %s", firstCall.method)
+	store.startInsertOrder <- true
+	if err := <-submitDone; err != nil {
+		t.Fatalf("submit failed: %v", err)
 	}
-
-	if store.isPersistSubmissionCalled != false {
-		t.Fatalf("Expected persist submission not to be called")
+	select {
+	case <-store.persistSubmissionStartedSignal:
+	case <-time.After(time.Second):
+		t.Fatal("processing did not start after insert completed")
 	}
-
-	store.updateSignal <- true
-	<-store.updatedSignal
-	submitErr := <-submitDone
-	if submitErr != nil {
-		t.Fatalf("submit failed: %v", submitErr)
+	worker.Stop()
+	if len(store.calls) != 1 || store.calls[0].order.Status != domain.StatusPending {
+		t.Fatalf("expected only a PENDING insert, got %+v", store.calls)
 	}
-
-	if len(store.calls) != 2 {
-		t.Fatalf("After update signal, expected len(store.calls) == 2, got: %d", len(store.calls))
-	}
-
-	secondCall := store.calls[1]
-	if secondCall.method != "update" {
-		t.Fatalf("Expected second call's method to be 'update', got: %s", secondCall.method)
-	}
-
 }
 
-/*
-Make UpdateOrders fail after successful enqueue. Verify:
-Submit returns the database error.
-The worker receives false.
-PersistSubmission is never called.
-*/
-func TestOrderWorkerSkipsProcessingWhenPendingUpdateFails(t *testing.T) {
-	symbolCode := "ASELS"
-	store := &fakeOrderWorkerStore{
-		failUpdateOrder:           true,
-		isPersistSubmissionCalled: false,
-	}
-	fakeWsServer := &fakeWsServer{}
-
-	worker := getTestWorker(t, symbolCode, store, fakeWsServer, 10)
-	ctx := context.Background()
+func TestOrderWorkerConcurrentSubmissionsPreserveSequence(t *testing.T) {
+	const orderCount = 16
+	store := &fakeOrderWorkerStore{persistedSequences: make(chan int64, orderCount)}
+	worker := getTestWorker(t, "ASELS", store, &fakeWsServer{}, orderCount)
+	initialNextSequence := worker.nextSequence
 	request := SubmitOrderRequest{
-		ParticipantId: 1,
-		Symbol:        symbolCode,
-		Side:          domain.SideBuy,
-		Price:         30000,
-		Quantity:      10,
+		ParticipantId: 1, Symbol: "ASELS", Side: domain.SideBuy, Price: 30000, Quantity: 10,
 	}
-
-	submitErr := worker.Submit(ctx, request)
-	if !errors.Is(submitErr, ErrFakeUpdateErr) {
-		t.Fatalf("Expected submitErr to be equal to ErrFakeUpdateErr")
+	submitDone := make(chan error, orderCount)
+	for range orderCount {
+		go func() { submitDone <- worker.Submit(context.Background(), request) }()
 	}
-
+	for range orderCount {
+		if err := <-submitDone; err != nil {
+			t.Fatalf("submit failed: %v", err)
+		}
+	}
 	worker.Stop()
+	if len(store.calls) != orderCount || len(store.persistedSequences) != orderCount {
+		t.Fatalf("expected %d inserts and processed orders, got %d and %d", orderCount, len(store.calls), len(store.persistedSequences))
+	}
+	for index, call := range store.calls {
+		expectedSequence := initialNextSequence + int64(index)
+		processedSequence := <-store.persistedSequences
+		if call.method != "insert" || call.order.Status != domain.StatusPending || call.order.Sequence != expectedSequence || processedSequence != expectedSequence {
+			t.Fatalf("expected PENDING insert and processing at sequence %d, got %+v and %d", expectedSequence, call, processedSequence)
+		}
+	}
+}
 
+func TestOrderWorkerSkipsProcessingWhenInsertFails(t *testing.T) {
+	store := &fakeOrderWorkerStore{failInsertOrder: true}
+	worker := getTestWorker(t, "ASELS", store, &fakeWsServer{}, 10)
+	request := SubmitOrderRequest{
+		ParticipantId: 1, Symbol: "ASELS", Side: domain.SideBuy, Price: 30000, Quantity: 10,
+	}
+	if err := worker.Submit(context.Background(), request); err == nil {
+		t.Fatal("expected insert error")
+	}
+	worker.Stop()
 	if store.isPersistSubmissionCalled {
-		t.Fatalf("Expected persist submission not been called, got: %t", store.isPersistSubmissionCalled)
+		t.Fatal("processing started after insert failed")
+	}
+	if len(store.calls) != 0 {
+		t.Fatalf("expected no successful storage calls, got %+v", store.calls)
 	}
 }
 
@@ -322,59 +297,86 @@ second order → occupies queue
 third order  → queue full
 */
 func TestOrderWorkerRejectsWhenQueueIsFull(t *testing.T) {
-	symbolCode := "ASELS"
-	store := &fakeOrderWorkerStore{
-		persistSubmissionStartedSignal: make(chan bool, 1),
-		startPersistSubmission:         make(chan bool),
-	}
-	fakeWsServer := &fakeWsServer{}
+	for _, failUpdateOrder := range []bool{false, true} {
+		t.Run(fmt.Sprintf("update_failure=%t", failUpdateOrder), func(t *testing.T) {
+			symbolCode := "ASELS"
+			store := &fakeOrderWorkerStore{
+				persistSubmissionStartedSignal: make(chan bool, 1),
+				startPersistSubmission:         make(chan bool),
+				failUpdateOrder:                failUpdateOrder,
+			}
+			fakeWsServer := &fakeWsServer{}
 
-	worker := getTestWorker(t, symbolCode, store, fakeWsServer, 1)
+			worker := getTestWorker(t, symbolCode, store, fakeWsServer, 1)
 
-	t.Cleanup(func() {
-		close(store.startPersistSubmission)
-	})
+			t.Cleanup(func() {
+				close(store.startPersistSubmission)
+			})
 
-	ctx := context.Background()
-	firstRequest := SubmitOrderRequest{
-		ParticipantId: 1,
-		Symbol:        symbolCode,
-		Side:          domain.SideBuy,
-		Price:         30000,
-		Quantity:      10,
-	}
+			ctx := context.Background()
+			firstRequest := SubmitOrderRequest{
+				ParticipantId: 1,
+				Symbol:        symbolCode,
+				Side:          domain.SideBuy,
+				Price:         30000,
+				Quantity:      10,
+			}
 
-	err := worker.Submit(ctx, firstRequest)
-	if err != nil {
-		t.Fatalf("Expected no error on first submit")
-	}
+			err := worker.Submit(ctx, firstRequest)
+			if err != nil {
+				t.Fatalf("Expected no error on first submit")
+			}
 
-	<-store.persistSubmissionStartedSignal
+			<-store.persistSubmissionStartedSignal
 
-	secondRequest := SubmitOrderRequest{
-		ParticipantId: 1,
-		Symbol:        symbolCode,
-		Side:          domain.SideBuy,
-		Price:         30000,
-		Quantity:      10,
-	}
+			secondRequest := SubmitOrderRequest{
+				ParticipantId: 1,
+				Symbol:        symbolCode,
+				Side:          domain.SideBuy,
+				Price:         30000,
+				Quantity:      10,
+			}
 
-	secondSubmitErr := worker.Submit(ctx, secondRequest)
-	if secondSubmitErr != nil {
-		t.Errorf("expected no error on second submit, got %v", secondSubmitErr)
-	}
+			secondSubmitErr := worker.Submit(ctx, secondRequest)
+			if secondSubmitErr != nil {
+				t.Errorf("expected no error on second submit, got %v", secondSubmitErr)
+			}
 
-	thirdRequest := SubmitOrderRequest{
-		ParticipantId: 1,
-		Symbol:        symbolCode,
-		Side:          domain.SideBuy,
-		Price:         30000,
-		Quantity:      10,
-	}
+			thirdRequest := SubmitOrderRequest{
+				ParticipantId: 1,
+				Symbol:        symbolCode,
+				Side:          domain.SideBuy,
+				Price:         30000,
+				Quantity:      10,
+			}
 
-	thirdSubmitErr := worker.Submit(ctx, thirdRequest)
-	if !errors.Is(thirdSubmitErr, ErrSubmissionQueueFull) {
-		t.Errorf("expected ErrSubmissionQueueFull, got %v", thirdSubmitErr)
+			thirdSubmitErr := worker.Submit(ctx, thirdRequest)
+			expectedErr := ErrSubmissionQueueFull
+			if failUpdateOrder {
+				expectedErr = ErrFakeUpdateErr
+			}
+			if !errors.Is(thirdSubmitErr, expectedErr) {
+				t.Errorf("expected %v, got %v", expectedErr, thirdSubmitErr)
+			}
+			if len(store.calls) != 4 {
+				t.Fatalf("expected three inserts and one rejection update, got %+v", store.calls)
+			}
+			for _, call := range store.calls[:3] {
+				if call.method != "insert" || call.order.Status != domain.StatusPending {
+					t.Fatalf("expected PENDING insert, got %+v", call)
+				}
+			}
+			lastCall := store.calls[3]
+			if lastCall.method != "update" || lastCall.order.Status != domain.StatusRejected {
+				t.Fatalf("expected REJECTED update, got %+v", lastCall)
+			}
+			if lastCall.order.ID != store.calls[2].order.ID {
+				t.Fatal("rejection update targeted wrong order")
+			}
+			if len(worker.queue) != 1 {
+				t.Fatalf("expected only second order queued, got %d", len(worker.queue))
+			}
+		})
 	}
 }
 
@@ -528,8 +530,8 @@ func TestOrderWorkerAcceptsPricesAtLimits(t *testing.T) {
 				t.Fatalf("expected price at limit to be accepted, got %v", err)
 			}
 
-			if len(store.calls) != 2 {
-				t.Fatalf("expected insert and update storage calls, got %d", len(store.calls))
+			if len(store.calls) != 1 {
+				t.Fatalf("expected only insert storage call, got %d", len(store.calls))
 			}
 		})
 	}
@@ -563,7 +565,7 @@ func TestOrderWorkerReturnsFailedAfterProccessStarts(t *testing.T) {
 	<-store.persistSubmissionEndedSignal
 	<-store.updatedAsFailedSignal
 
-	call := store.calls[2]
+	call := store.calls[1]
 	if call.method != "update" {
 		t.Fatalf("Expected update method, got: %s", call.method)
 	}

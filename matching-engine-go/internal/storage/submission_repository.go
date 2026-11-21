@@ -3,8 +3,6 @@ package storage
 import (
 	"context"
 	"fmt"
-	"log"
-	"time"
 
 	"bist-matching-engine/internal/domain"
 
@@ -12,9 +10,7 @@ import (
 )
 
 func (store *PostgresStore) PersistSubmission(ctx context.Context, incomingOrder domain.Order, restingOrderUpdates []domain.Order, trades []domain.Trade, events []domain.OrderEvent) error {
-	stageStarted := time.Now()
 	tx, err := store.pool.Begin(ctx)
-	log.Printf("order=%s symbol=%s stage=db_begin duration=%s err=%v", incomingOrder.ID, incomingOrder.Symbol.Code, time.Since(stageStarted), err)
 	if err != nil {
 		return fmt.Errorf("begin submission transaction: %w", err)
 	}
@@ -88,7 +84,6 @@ func (store *PostgresStore) PersistSubmission(ctx context.Context, incomingOrder
 		)
 	}
 
-	stageStarted = time.Now()
 	results := tx.SendBatch(ctx, batch)
 	// Close results before rollback on any error, and explicitly before commit.
 	defer results.Close()
@@ -115,11 +110,8 @@ func (store *PostgresStore) PersistSubmission(ctx context.Context, incomingOrder
 	if err := results.Close(); err != nil {
 		return fmt.Errorf("close submission batch: %w", err)
 	}
-	log.Printf("order=%s symbol=%s stage=db_batch duration=%s orders=%d trades=%d events=%d", incomingOrder.ID, incomingOrder.Symbol.Code, time.Since(stageStarted), len(ordersToUpdate), len(trades), len(events))
 
-	stageStarted = time.Now()
 	err = tx.Commit(ctx)
-	log.Printf("order=%s symbol=%s stage=db_commit duration=%s err=%v", incomingOrder.ID, incomingOrder.Symbol.Code, time.Since(stageStarted), err)
 	if err != nil {
 		return fmt.Errorf("commit submission transaction: %w", err)
 	}

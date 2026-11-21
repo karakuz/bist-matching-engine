@@ -10,6 +10,9 @@ import type { OrderSide, SubmitOrderRequest } from '../types/order'
 
 export const LEVELS = 7
 export const DEMO_PARTICIPANT_ID = 2
+const TRADE_DISPLAY_INTERVAL_MS = 10
+const ENABLE_TRADE_PLAYBACK = false
+const MAX_TAPE_TRADES = 60
 
 export type Side = 'buy' | 'sell'
 
@@ -84,13 +87,15 @@ const toPriceMap = (snapshot: MarketDepthSnapshot, side: Side) => {
   }, {})
 }
 
+const tradeTimeFormatter = new Intl.DateTimeFormat('tr-TR', {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+})
+
 function formatTime(createdAt: string) {
-  return new Intl.DateTimeFormat('tr-TR', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(new Date(createdAt))
+  return tradeTimeFormatter.format(new Date(createdAt))
 }
 
 function toTapeTrade(trade: TradeMessage): TapeTrade {
@@ -108,13 +113,13 @@ function toTapeTrade(trade: TradeMessage): TapeTrade {
   }
 }
 
+const priceFormatter = new Intl.NumberFormat('tr-TR', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
 export const fmt = (priceKurus: number | null) =>
-  priceKurus === null
-    ? '—'
-    : (priceKurus / 100).toLocaleString('tr-TR', {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })
+  priceKurus === null ? '—' : priceFormatter.format(priceKurus / 100)
 
 export function levels(state: MarketState, side: Side): Level[] {
   const book = side === 'buy' ? state.bids : state.asks
@@ -150,14 +155,44 @@ export function levels(state: MarketState, side: Side): Level[] {
 export function createEngine(symbol: string) {
   let state: MarketState = { ...initialState }
   const subscribers = new Set<() => void>()
+  const pendingTrades: TapeTrade[] = []
+  let tradeTimer: number | undefined
+  let lastTradeDisplayedAt: number | undefined
 
   function emit(update: Partial<MarketState>) {
     state = { ...state, ...update }
     subscribers.forEach((subscriber) => subscriber())
   }
 
+  function scheduleNextTrade() {
+    if (tradeTimer !== undefined || pendingTrades.length === 0) return
+
+    const delay = lastTradeDisplayedAt === undefined
+      ? 0
+      : Math.max(
+          0,
+          TRADE_DISPLAY_INTERVAL_MS - (performance.now() - lastTradeDisplayedAt),
+        )
+
+    tradeTimer = window.setTimeout(displayNextTrade, delay)
+  }
+
+  function displayNextTrade() {
+    tradeTimer = undefined
+    const trade = pendingTrades.shift()
+
+    if (!trade) return
+
+    emit({ tape: [trade, ...state.tape].slice(0, MAX_TAPE_TRADES) })
+    lastTradeDisplayedAt = performance.now()
+    scheduleNextTrade()
+  }
+
   function enqueueTrades(trades: TapeTrade[]) {
-    const knownTradeIds = new Set(state.tape.map((trade) => trade.id))
+    const knownTradeIds = new Set([
+      ...state.tape.map((trade) => trade.id),
+      ...pendingTrades.map((trade) => trade.id),
+    ])
     const newTrades: TapeTrade[] = []
 
     for (const trade of trades) {
@@ -167,8 +202,11 @@ export function createEngine(symbol: string) {
       }
     }
 
-    if (newTrades.length > 0) {
-      emit({ tape: [...newTrades.reverse(), ...state.tape].slice(0, 60) })
+    if (ENABLE_TRADE_PLAYBACK) {
+      pendingTrades.push(...newTrades)
+      scheduleNextTrade()
+    } else if (newTrades.length > 0) {
+      emit({ tape: [...newTrades.reverse(), ...state.tape].slice(0, MAX_TAPE_TRADES) })
     }
   }
 
@@ -275,6 +313,14 @@ export function createEngine(symbol: string) {
     return () => {
       isStopped = true
       disconnect()
+
+      if (tradeTimer !== undefined) {
+        window.clearTimeout(tradeTimer)
+        tradeTimer = undefined
+      }
+
+      pendingTrades.length = 0
+      lastTradeDisplayedAt = undefined
     }
   }
 

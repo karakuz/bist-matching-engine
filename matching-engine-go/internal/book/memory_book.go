@@ -11,7 +11,9 @@ import (
 type Order = domain.Order
 type Symbol = domain.Symbol
 
-const MAX_SNAPSHOT_LEVELS = 100
+var MAX_SNAPSHOT_LEVELS int64 = 100
+
+var priceLimitPercentage int64 = 10
 
 var (
 	ErrInvalidAddSideConflict   = errors.New("Book has different side than current one on this level")
@@ -235,7 +237,6 @@ func (book *Book) ReduceBestSell(quantity int64) (domain.Order, bool) {
 
 func calculatePriceLimits(openingPrice, tickSize int64) (upper, lower int64) {
 	const percentageBase int64 = 100
-	const priceLimitPercentage int64 = 10
 
 	tickDenominator := percentageBase * tickSize
 

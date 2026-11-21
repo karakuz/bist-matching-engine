@@ -40,8 +40,6 @@ func RegisterRoutes(
 	})
 
 	router.GET("/engine/:symbol/snapshot/:levels", func(c *gin.Context) {
-		const maxSnapshotLevels = 100
-
 		symbol := strings.ToUpper(c.Param("symbol"))
 		levelsStr := c.Param("levels")
 
