@@ -66,7 +66,7 @@ func (store *PostgresStore) GetRestingOrdersForSession(
 		WHERE symbol = $1
 			AND session_date = $2
 			AND status IN ('OPEN', 'PARTIALLY_FILLED')
-		ORDER BY created_at ASC, id ASC
+		ORDER BY sequence_number ASC
 	`
 
 	rows, err := store.pool.Query(ctx, query, symbol.Code, sessionDate)
