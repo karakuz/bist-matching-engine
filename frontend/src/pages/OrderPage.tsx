@@ -249,6 +249,7 @@ function BookSide({ title, side, rows, onPick }: BookSideProps) {
       <div className="cols">
         <span>Price</span>
         <span className="num">Qty</span>
+        <span className="num">Orders</span>
         <span className="num">Total</span>
       </div>
       {rows.length === 0 ? (
@@ -271,6 +272,7 @@ function BookSide({ title, side, rows, onPick }: BookSideProps) {
             />
             <span className="p">{fmt(row.p)}</span>
             <span className="num q">{row.q}</span>
+            <span className="num">{row.orderCount}</span>
             <span className="num">{row.cum}</span>
           </div>
         ))

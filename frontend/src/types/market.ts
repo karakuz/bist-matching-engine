@@ -10,6 +10,7 @@ export type SymbolSummary = {
 export type PriceLevel = {
   price: number
   quantity: number
+  orderCount: number
 }
 
 export type MarketDepthSnapshot = {

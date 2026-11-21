@@ -266,8 +266,9 @@ func NewBook(symbol Symbol, sessionDate time.Time, openingPrice int64) *Book {
 }
 
 type PriceLevel struct {
-	Price    int64 `json:"price"`
-	Quantity int64 `json:"quantity"`
+	Price      int64 `json:"price"`
+	Quantity   int64 `json:"quantity"`
+	OrderCount int64 `json:"orderCount"`
 }
 
 type Snapshot struct {
@@ -302,8 +303,9 @@ func (book *Book) Snapshot(levels int64) (Snapshot, error) {
 		levelOrders := book.buys[buyPrice]
 
 		priceLevel := PriceLevel{
-			Price:    buyPrice,
-			Quantity: 0,
+			Price:      buyPrice,
+			Quantity:   0,
+			OrderCount: int64(len(levelOrders)),
 		}
 		for _, levelOrder := range levelOrders {
 			priceLevel.Quantity += levelOrder.RemainingQuantity
@@ -327,8 +329,9 @@ func (book *Book) Snapshot(levels int64) (Snapshot, error) {
 		levelOrders := book.sells[sellPrice]
 
 		priceLevel := PriceLevel{
-			Price:    sellPrice,
-			Quantity: 0,
+			Price:      sellPrice,
+			Quantity:   0,
+			OrderCount: int64(len(levelOrders)),
 		}
 		for _, levelOrder := range levelOrders {
 			priceLevel.Quantity += levelOrder.RemainingQuantity

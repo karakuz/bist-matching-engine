@@ -3,6 +3,7 @@ import { connectMarketFeed, isCurrentPriceMessage, isDepthMessage, isTradesMessa
 import { submitOrderRequest } from './orders'
 import type {
   MarketDepthSnapshot,
+  PriceLevel,
   SymbolSummary,
   TradeMessage,
 } from '../types/market'
@@ -19,6 +20,7 @@ export type Side = 'buy' | 'sell'
 export type Level = {
   p: number
   q: number
+  orderCount: number
   cum: number
   mine: boolean
 }
@@ -45,8 +47,8 @@ export type MyOrder = {
 }
 
 export type MarketState = {
-  bids: Record<number, number>
-  asks: Record<number, number>
+  bids: Record<number, PriceLevel>
+  asks: Record<number, PriceLevel>
   last: number | null
   lastDir: 'up' | 'down' | ''
   open: number | null
@@ -81,8 +83,8 @@ const initialState: MarketState = {
 const toPriceMap = (snapshot: MarketDepthSnapshot, side: Side) => {
   const levels = side === 'buy' ? snapshot.buy : snapshot.sell
 
-  return levels.reduce<Record<number, number>>((book, level) => {
-    book[level.price] = level.quantity
+  return levels.reduce<Record<number, PriceLevel>>((book, level) => {
+    book[level.price] = level
     return book
   }, {})
 }
@@ -140,12 +142,13 @@ export function levels(state: MarketState, side: Side): Level[] {
 
   return sortedPrices.slice(0, LEVELS).map((price) => {
     const ownQuantity = mineOn(price)
-    const quantity = (book[price] ?? 0) + ownQuantity
+    const quantity = (book[price]?.quantity ?? 0) + ownQuantity
     cumulativeQuantity += quantity
 
     return {
       p: price,
       q: quantity,
+      orderCount: book[price]?.orderCount ?? 0,
       cum: cumulativeQuantity,
       mine: ownQuantity > 0,
     }

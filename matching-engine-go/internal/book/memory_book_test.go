@@ -231,6 +231,17 @@ func TestMemoryBookSnapshot(t *testing.T) {
 	if bookSnapshot.Sell[0].Quantity != 40 {
 		t.Fatalf("Expected first level of bookSnapshot.Sell's Quantity to be 40, got %d", bookSnapshot.Sell[0].Quantity)
 	}
+	for _, sideLevels := range [][]PriceLevel{bookSnapshot.Buy, bookSnapshot.Sell} {
+		for index, level := range sideLevels {
+			expectedCount := int64(1)
+			if index == 0 {
+				expectedCount = 2
+			}
+			if level.OrderCount != expectedCount {
+				t.Fatalf("price %d: expected %d orders, got %d", level.Price, expectedCount, level.OrderCount)
+			}
+		}
+	}
 }
 
 func TestMemoryBookSnapshot_EmptyBookReturnsNonNilEmptySlices(t *testing.T) {
@@ -288,6 +299,9 @@ func TestMemoryBookSnapshot_AggregatesRemainingQuantity(t *testing.T) {
 	}
 	if snapshot.Buy[0].Quantity != 65 {
 		t.Fatalf("expected aggregated remaining quantity 65, got %d", snapshot.Buy[0].Quantity)
+	}
+	if snapshot.Buy[0].OrderCount != 2 {
+		t.Fatalf("expected two partially filled orders, got %d", snapshot.Buy[0].OrderCount)
 	}
 }
 
