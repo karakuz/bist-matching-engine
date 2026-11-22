@@ -13,6 +13,7 @@ import (
 	"bist-matching-engine/internal/book"
 	"bist-matching-engine/internal/domain"
 	"bist-matching-engine/internal/matching"
+	"bist-matching-engine/internal/storage"
 
 	"github.com/google/uuid"
 )
@@ -182,8 +183,9 @@ func (worker *OrderWorker) run() {
 		started := time.Now()
 
 		_, plan, err := worker.process(worker.ctx, *order)
-		if errors.Is(err, ErrApplyCommittedPlan) {
-			log.Printf("worker stopped: symbol=%s order=%s sequence=%d; database committed but apply failed: %v", worker.symbol.Code, order.ID, order.Sequence, err)
+		var commitErr *storage.CommitOutcomeUnknownError
+		if errors.Is(err, ErrApplyCommittedPlan) || errors.As(err, &commitErr) {
+			log.Printf("worker stopped: symbol=%s order=%s sequence=%d; cannot safely continue: %v", worker.symbol.Code, order.ID, order.Sequence, err)
 			worker.submissionMutex.Lock()
 			if !worker.stopped {
 				worker.stopped = true

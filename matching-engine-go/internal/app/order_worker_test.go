@@ -11,6 +11,7 @@ import (
 	"bist-matching-engine/internal/book"
 	"bist-matching-engine/internal/domain"
 	"bist-matching-engine/internal/matching"
+	"bist-matching-engine/internal/storage"
 )
 
 var (
@@ -33,6 +34,7 @@ type fakeOrderWorkerStore struct {
 	persistSubmissionEndedSignal   chan bool
 	startPersistSubmission         chan bool
 	failPersistSubmission          bool
+	persistSubmissionErr           error
 
 	failInsertOrder       bool
 	insertSequenceAttempt chan int64
@@ -222,7 +224,69 @@ func (store *fakeOrderWorkerStore) PersistSubmission(ctx context.Context, incomi
 	if store.failPersistSubmission {
 		return errors.New("Failed by store.failPersisSubmission")
 	}
+	if store.persistSubmissionErr != nil {
+		return store.persistSubmissionErr
+	}
 	return nil
+}
+
+func TestOrderWorkerStopsWhenCommitOutcomeIsUnknown(t *testing.T) {
+	store := &fakeOrderWorkerStore{
+		persistSubmissionStartedSignal: make(chan bool, 2),
+		startPersistSubmission:         make(chan bool),
+		updatedAsFailedSignal:          make(chan bool, 2),
+		persistedSequences:             make(chan int64, 2),
+		persistSubmissionErr:           &storage.CommitOutcomeUnknownError{Err: context.DeadlineExceeded},
+	}
+	publisher := &fakeWsServer{}
+	worker := getTestWorker(t, "ASELS", store, publisher, 2)
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			close(store.startPersistSubmission)
+		}
+	})
+	request := SubmitOrderRequest{
+		ParticipantId: 1, Symbol: "ASELS", Side: domain.SideBuy, Price: 30000, Quantity: 10,
+	}
+	if err := worker.Submit(context.Background(), request); err != nil {
+		t.Fatalf("submit first order: %v", err)
+	}
+	<-store.persistSubmissionStartedSignal
+	if err := worker.Submit(context.Background(), request); err != nil {
+		t.Fatalf("queue second order: %v", err)
+	}
+	close(store.startPersistSubmission)
+	released = true
+	select {
+	case <-worker.done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("worker did not stop after uncertain commit")
+	}
+	if len(store.persistedSequences) != 1 || len(worker.queue) != 1 {
+		t.Fatal("worker attempted the next queued order after uncertain commit")
+	}
+	if len(store.calls) != 2 {
+		t.Fatalf("expected only initial inserts, got %+v", store.calls)
+	}
+	for _, call := range store.calls {
+		if call.method != "insert" || call.order.Status != domain.StatusPending {
+			t.Fatalf("uncertain commit must not overwrite order status: %+v", call)
+		}
+	}
+	snapshot, err := worker.engine.Snapshot(1)
+	if err != nil || len(snapshot.Buy) != 0 || len(snapshot.Sell) != 0 {
+		t.Fatalf("uncertain plan was applied to memory: %+v, %v", snapshot, err)
+	}
+	if len(publisher.calls) != 0 {
+		t.Fatal("uncertain commit published market data")
+	}
+	if err := worker.Submit(context.Background(), request); !errors.Is(err, ErrWorkerStopped) {
+		t.Fatalf("expected new submission rejected, got %v", err)
+	}
+	if len(store.calls) != 2 {
+		t.Fatal("stopped worker inserted another order")
+	}
 }
 
 func getTestWorker(t *testing.T, symbolCode string, store orderWorkerStore, wsServer orderPublisher, queueCapacity int, participantIdNameMappings ...map[int64]string) *OrderWorker {

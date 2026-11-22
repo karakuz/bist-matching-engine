@@ -1,10 +1,8 @@
-# BIST Trading Platform
+# Go Trading Simulation and Matching Engine
 
-A multi-service trading simulation platform built around a deterministic Go
-matching engine, PostgreSQL persistence, and a live React trading screen. The
-project focuses on the engineering behind exchange-style order flow: price-time
-priority, serialized matching, transactional results, bounded queues, and
-observable performance under concurrent submissions.
+A trading simulation and matching engine developed with Go, backed by PostgreSQL
+and a React trading interface. It implements exchange-style order flow, including
+price-time priority, serialized matching, and limit-order submission.
 
 ## Project overview
 
@@ -92,6 +90,16 @@ remain unprocessed as `PENDING`; automatic recovery is not implemented. This pat
 is distinguished by `ErrApplyCommittedPlan` and does not overwrite the incoming
 order with `FAILED` and its original quantity. `Stop` releases the submission lock
 before waiting for worker termination, including when shutdown overlaps this path.
+
+Commit-result uncertainty is a separate stop condition. If `Commit` fails without
+a definitive rejection or confirmation that the command was not sent, storage
+returns `CommitOutcomeUnknownError`. This does not mean the commit succeeded or
+even reached PostgreSQL. The worker recognizes the error through its
+concrete `CommitOutcomeUnknownError` type, skips `Apply` and the `FAILED` update, and stops
+the symbol's processing and new submissions. An explicit PostgreSQL rollback or
+ordinary `ERROR` rejection follows the existing failure path; server errors that
+explicitly report unknown completion/resolution, transport failures, and ambiguous
+timeouts take the uncertain-outcome path. Recovery/reconciliation remains manual.
 
 ### Transactional persistence
 
@@ -322,10 +330,11 @@ transaction. The current ordering prevents memory changes when normal database
 persistence fails. A process failure after the database commit but before
 `Engine.Apply` requires the replay/recovery work planned for hardening.
 
-The queue is currently in memory. Graceful shutdown drains accepted commands,
-but ungraceful process failure can leave a persisted `PENDING` order unprocessed.
-Reloading those pending orders is planned recovery work and is not implemented
-yet.
+The queue is currently in memory. On the normal worker stop path, `Stop` closes
+the queue and waits for queued commands to finish. The API process does not yet
+handle termination signals or shut down its HTTP server gracefully, so process
+termination can leave a persisted `PENDING` order unprocessed. Reloading those
+pending orders is planned recovery work and is not implemented yet.
 
 ## Roadmap
 

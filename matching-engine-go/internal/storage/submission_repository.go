@@ -2,12 +2,28 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"bist-matching-engine/internal/domain"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// CommitOutcomeUnknownError means the commit result could not be confirmed.
+// It does not assert that COMMIT reached PostgreSQL or that it succeeded.
+type CommitOutcomeUnknownError struct {
+	Err error
+}
+
+func (err *CommitOutcomeUnknownError) Error() string {
+	return fmt.Sprintf("commit submission transaction outcome is unknown: %v", err.Err)
+}
+
+func (err *CommitOutcomeUnknownError) Unwrap() error {
+	return err.Err
+}
 
 func (store *PostgresStore) PersistSubmission(ctx context.Context, incomingOrder domain.Order, restingOrderUpdates []domain.Order, trades []domain.Trade, events []domain.OrderEvent) error {
 	tx, err := store.pool.Begin(ctx)
@@ -111,10 +127,30 @@ func (store *PostgresStore) PersistSubmission(ctx context.Context, incomingOrder
 		return fmt.Errorf("close submission batch: %w", err)
 	}
 
-	err = tx.Commit(ctx)
-	if err != nil {
-		return fmt.Errorf("commit submission transaction: %w", err)
+	return commitSubmission(ctx, tx)
+}
+
+func commitSubmission(ctx context.Context, tx pgx.Tx) error {
+	err := tx.Commit(ctx)
+	if err == nil {
+		return nil
 	}
 
-	return nil
+	// pgconn.SafeToRetry means the command was not sent. No retry is made here.
+	if errors.Is(err, pgx.ErrTxCommitRollback) || pgconn.SafeToRetry(err) {
+		return fmt.Errorf("commit submission transaction: %w", err)
+	}
+	var postgresErr *pgconn.PgError
+	if errors.As(err, &postgresErr) {
+		severity := postgresErr.SeverityUnlocalized
+		if severity == "" {
+			severity = postgresErr.Severity
+		}
+		// An explicit ERROR response rejects COMMIT, except SQLSTATEs that
+		// explicitly report unknown completion or transaction resolution.
+		if severity == "ERROR" && postgresErr.Code != "40003" && postgresErr.Code != "08007" {
+			return fmt.Errorf("commit submission transaction: %w", err)
+		}
+	}
+	return &CommitOutcomeUnknownError{Err: err}
 }
