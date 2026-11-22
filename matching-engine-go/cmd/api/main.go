@@ -13,7 +13,14 @@ import (
 	"bist-matching-engine/internal/storage"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
+
+// @title           BIST Matching Engine API
+// @version         1.0
+// @description     HTTP and WebSocket API for the BIST matching engine. Prices are integer kuruş values.
+// @BasePath        /
 
 var orderQueueCapacity = 5000
 
@@ -77,6 +84,9 @@ func run() error {
 	router.Use(gin.Recovery())
 
 	httptransport.RegisterRoutes(router, engines, workers)
+	router.StaticFile("/swagger/doc.json", "docs/swagger.json")
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.URL("/swagger/doc.json")))
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	router.GET("/ws", gin.WrapF(wsServer.HandleConnection))
 

@@ -1,0 +1,119 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "BIST Matching Engine API",
+    "description": "HTTP and WebSocket API for the BIST matching engine. Prices are integer kuruş values.",
+    "version": "1.0"
+  },
+  "basePath": "/",
+  "schemes": ["http", "https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "paths": {
+    "/symbols": {
+      "get": {
+        "tags": ["market"],
+        "summary": "List available symbols",
+        "responses": {"200": {"description": "Sorted symbol codes", "schema": {"type": "array", "items": {"type": "string"}}}}
+      }
+    },
+    "/alivez": {
+      "get": {
+        "tags": ["system"],
+        "summary": "Liveness probe",
+        "responses": {"200": {"description": "Liveness response", "schema": {"type": "array", "items": {"type": "object", "additionalProperties": {"type": "string"}}}}}
+      }
+    },
+    "/engine/{symbol}/snapshot/{levels}": {
+      "get": {
+        "tags": ["market"],
+        "summary": "Get aggregated order book snapshot",
+        "parameters": [
+          {"name": "symbol", "in": "path", "required": true, "type": "string", "description": "Symbol code, for example ASELS"},
+          {"name": "levels", "in": "path", "required": true, "type": "integer", "minimum": 1, "maximum": 100, "description": "Number of price levels per side"}
+        ],
+        "responses": {
+          "200": {"description": "Order book snapshot", "schema": {"$ref": "#/definitions/Snapshot"}},
+          "400": {"description": "Invalid levels"},
+          "404": {"description": "Symbol engine not found"},
+          "500": {"description": "Internal server error"}
+        }
+      }
+    },
+    "/engine/{symbol}/summary": {
+      "get": {
+        "tags": ["market"],
+        "summary": "Get symbol market summary",
+        "parameters": [{"name": "symbol", "in": "path", "required": true, "type": "string", "description": "Symbol code, for example ASELS"}],
+        "responses": {
+          "200": {"description": "Market summary", "schema": {"$ref": "#/definitions/SymbolSummary"}},
+          "404": {"description": "Symbol engine not found"}
+        }
+      }
+    },
+    "/orders": {
+      "post": {
+        "tags": ["orders"],
+        "summary": "Submit a limit order",
+        "description": "A 202 response means the order was queued for processing; it does not mean the order matched. Price is an integer kuruş value and must follow the symbol tick size and daily price limits.",
+        "parameters": [{"name": "order", "in": "body", "required": true, "schema": {"$ref": "#/definitions/SubmitOrderRequest"}}],
+        "responses": {
+          "202": {"description": "Order queued", "schema": {"$ref": "#/definitions/MessageResponse"}},
+          "400": {"description": "Invalid JSON or invalid order"},
+          "404": {"description": "Symbol worker not found"},
+          "503": {"description": "Submission queue full or worker unavailable"},
+          "500": {"description": "Internal server error"}
+        }
+      }
+    },
+    "/ws": {
+      "get": {
+        "tags": ["market data"],
+        "summary": "Open WebSocket market data connection",
+        "description": "Connect using WebSocket. Send JSON messages with action, topic (CURRENT_PRICE, MARKET_DEPTH, or TRADES), and symbol to subscribe/unsubscribe.",
+        "responses": {"101": {"description": "WebSocket connection upgraded"}}
+      }
+    }
+  },
+  "definitions": {
+    "SubmitOrderRequest": {
+      "type": "object",
+      "required": ["participantId", "symbol", "side", "price", "quantity"],
+      "properties": {
+        "participantId": {"type": "integer", "format": "int64", "minimum": 1},
+        "symbol": {"type": "string", "example": "ASELS"},
+        "side": {"type": "string", "enum": ["BUY", "SELL"]},
+        "price": {"type": "integer", "format": "int64", "minimum": 1, "description": "Integer kuruş; must be a valid tick and within daily limits"},
+        "quantity": {"type": "integer", "format": "int64", "minimum": 1}
+      }
+    },
+    "MessageResponse": {"type": "object", "properties": {"message": {"type": "string", "example": "Order Queued"}}},
+    "PriceLevel": {
+      "type": "object",
+      "properties": {
+        "price": {"type": "integer", "format": "int64"},
+        "quantity": {"type": "integer", "format": "int64"},
+        "orderCount": {"type": "integer", "format": "int64"}
+      }
+    },
+    "Snapshot": {
+      "type": "object",
+      "properties": {
+        "symbol": {"type": "string"},
+        "buy": {"type": "array", "items": {"$ref": "#/definitions/PriceLevel"}},
+        "sell": {"type": "array", "items": {"$ref": "#/definitions/PriceLevel"}}
+      }
+    },
+    "SymbolSummary": {
+      "type": "object",
+      "properties": {
+        "openingPrice": {"type": "integer", "format": "int64"},
+        "lastTradePrice": {"type": "integer", "format": "int64"},
+        "priceChangePerc": {"type": "number", "format": "double"},
+        "lowerLimit": {"type": "integer", "format": "int64"},
+        "upperLimit": {"type": "integer", "format": "int64"},
+        "tickSize": {"type": "integer", "format": "int64"}
+      }
+    }
+  }
+}
